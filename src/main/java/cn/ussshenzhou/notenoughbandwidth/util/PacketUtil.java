@@ -16,15 +16,16 @@ public class PacketUtil {
     /**
      * Get the true ResourceLocation type of a Packet.
      * Order:
-     * 1) Use Packet#type().id() if available (most reliable on 1.20.1).
+     * 1) Reflectively call type().id() if available (most reliable on 1.20.1).
      * 2) For NEB-registered packets use the registration map.
      * 3) Fallback to class-name-derived minecraft:snake_case.
      */
     public static ResourceLocation getTrueType(Packet<?> packet) {
         return TYPE_CACHE.computeIfAbsent(packet.getClass(), cls -> {
-            // 1) Try Packet#type().id() (vanilla PacketType path is authoritative)
+            // 1) Try Packet#type().id() via reflection (Packet may not expose type() in mappings)
             try {
-                var packetType = packet.type();
+                var typeMethod = packet.getClass().getMethod("type");
+                Object packetType = typeMethod.invoke(packet);
                 if (packetType != null) {
                     var idMethod = packetType.getClass().getMethod("id");
                     Object id = idMethod.invoke(packetType);
