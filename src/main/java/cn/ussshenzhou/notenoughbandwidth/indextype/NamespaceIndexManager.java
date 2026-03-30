@@ -7,7 +7,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.loading.FMLEnvironment;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -48,18 +51,21 @@ public class NamespaceIndexManager {
         add("container_set_slot");
         add("cooldown");
         add("custom_chat_completions");
-        add("custom_payload");
         add("damage_event");
+        add("debug/block_value");
+        add("debug/chunk_value");
+        add("debug/entity_value");
+        add("debug/event");
         add("debug_sample");
         add("delete_chat");
-        add("disconnect");
         add("disguised_chat");
         add("entity_event");
+        add("entity_position_sync");
         add("explode");
         add("forget_level_chunk");
         add("game_event");
-        add("game_profile");
-        add("horse_screen_open");
+        add("game_test_highlight_pos");
+        add("mount_screen_open");
         add("hurt_animation");
         add("initialize_border");
         add("level_chunk_with_light");
@@ -67,32 +73,33 @@ public class NamespaceIndexManager {
         add("level_particles");
         add("light_update");
         add("login");
+        add("low_disk_space_warning");
         add("map_item_data");
         add("merchant_offers");
         add("move_entity_pos");
         add("move_entity_pos_rot");
+        add("move_minecart_along_track");
         add("move_entity_rot");
         add("move_vehicle");
         add("open_book");
         add("open_screen");
         add("open_sign_editor");
-        add("ping");
         add("place_ghost_recipe");
         add("player_abilities");
         add("player_chat");
         add("player_combat_end");
+        add("player_combat_enter");
         add("player_combat_kill");
-        add("player_combat_start");
         add("player_info_remove");
         add("player_info_update");
         add("player_look_at");
         add("player_position");
-        add("recipe");
+        add("player_rotation");
+        add("recipe_book_add");
+        add("recipe_book_remove");
+        add("recipe_book_settings");
         add("remove_entities");
         add("remove_mob_effect");
-        add("reset_score");
-        add("resource_pack_pop");
-        add("resource_pack_push");
         add("respawn");
         add("rotate_head");
         add("section_blocks_update");
@@ -107,7 +114,6 @@ public class NamespaceIndexManager {
         add("set_camera");
         add("set_chunk_cache_center");
         add("set_chunk_cache_radius");
-        add("set_cursor_item");
         add("set_default_spawn_position");
         add("set_display_objective");
         add("set_entity_data");
@@ -119,7 +125,6 @@ public class NamespaceIndexManager {
         add("set_held_slot");
         add("set_objective");
         add("set_passengers");
-        add("set_player_inventory");
         add("set_player_team");
         add("set_score");
         add("set_simulation_distance");
@@ -127,25 +132,81 @@ public class NamespaceIndexManager {
         add("set_time");
         add("set_title_text");
         add("set_titles_animation");
-        add("sound");
         add("sound_entity");
+        add("sound");
         add("start_configuration");
         add("stop_sound");
-        add("store_cookie");
         add("system_chat");
         add("tab_list");
         add("tag_query");
         add("take_item_entity");
         add("teleport_entity");
-        add("ticking_state");
-        add("ticking_step");
-        add("transfer");
+        add("test_instance_block_status");
         add("update_advancements");
         add("update_attributes");
-        add("update_enabled_features");
         add("update_mob_effect");
         add("update_recipes");
-        add("update_tags");
+        add("projectile_power");
+        add("waypoint");
+        add("accept_teleportation");
+        add("block_entity_tag_query");
+        add("bundle_item_selected");
+        add("change_game_mode");
+        add("chat_ack");
+        add("chat_command");
+        add("chat_command_signed");
+        add("chat");
+        add("chat_session_update");
+        add("chunk_batch_received");
+        add("client_command");
+        add("client_tick_end");
+        add("command_suggestion");
+        add("configuration_acknowledged");
+        add("container_button_click");
+        add("container_click");
+        add("container_slot_state_changed");
+        add("debug_subscription_request");
+        add("edit_book");
+        add("entity_tag_query");
+        add("interact");
+        add("jigsaw_generate");
+        add("lock_difficulty");
+        add("move_player_pos");
+        add("move_player_pos_rot");
+        add("move_player_rot");
+        add("move_player_status_only");
+        add("paddle_boat");
+        add("pick_item_from_block");
+        add("pick_item_from_entity");
+        add("place_recipe");
+        add("player_action");
+        add("player_command");
+        add("player_input");
+        add("player_loaded");
+        add("recipe_book_change_settings");
+        add("recipe_book_seen_recipe");
+        add("rename_item");
+        add("seen_advancements");
+        add("select_trade");
+        add("set_beacon");
+        add("set_carried_item");
+        add("set_command_block");
+        add("set_command_minecart");
+        add("set_creative_mode_slot");
+        add("set_jigsaw_block");
+        add("set_structure_block");
+        add("set_test_block");
+        add("test_instance_block_action");
+        add("sign_update");
+        add("swing");
+        add("teleport_to_entity");
+        add("use_item_on");
+        add("use_item");
+        add("reset_score");
+        add("ticking_state");
+        add("ticking_step");
+        add("set_cursor_item");
+        add("set_player_inventory");
     }};
 
     public static boolean isInitialized() {
@@ -173,13 +234,13 @@ public class NamespaceIndexManager {
         NAMESPACE_MAP.clear();
         PATH_MAPS.clear();
 
-        AtomicInteger namespaceIndex = new AtomicInteger(0);
+        AtomicInteger namespaceIndex = new AtomicInteger();
         indexVanillaPackets(namespaceIndex);
-        indexModdedPackets(namespaceIndex, types);
+        indexCustomPayloads(types, namespaceIndex);
 
         initTrace();
         if (NAMESPACES.size() > 4096 || PATHS.stream().anyMatch(l -> l.size() > 4096)) {
-            LogUtils.getLogger().warn("[NEB] Too many packet types, disabling NEB index optimization.");
+            throw new RuntimeException("There are too many namespaces and/or paths (Max 4096 namespaces, 4096 paths for each namespace). NEB is not designed to work with so many mods.");
         }
         initialized = true;
     }
@@ -188,7 +249,8 @@ public class NamespaceIndexManager {
         VANILLA_PATHS.forEach(path -> fillSingle(namespaceIndex, new ResourceLocation("minecraft", path)));
     }
 
-    private static void indexModdedPackets(AtomicInteger namespaceIndex, List<ResourceLocation> types) {
+    private static void indexCustomPayloads(List<ResourceLocation> types, AtomicInteger namespaceIndex) {
+        types.sort(Comparator.comparing(ResourceLocation::getNamespace).thenComparing(ResourceLocation::getPath));
         types.forEach(type -> fillSingle(namespaceIndex, type));
     }
 
@@ -196,51 +258,71 @@ public class NamespaceIndexManager {
         var logger = LogUtils.getLogger();
         if (logger.isDebugEnabled()) {
             logger.debug("PacketTypeIndexManager initialized.");
-            NAMESPACES.forEach(ns -> logger.debug("  Namespace[{}]: {}", NAMESPACE_MAP.getInt(ns), ns));
+            NAMESPACE_MAP.forEach((namespace, id) -> {
+                logger.debug("namespace: {} id: {}", namespace, id);
+                PATH_MAPS.get(id).forEach((path, id1) -> logger.debug("- path: {} id: {}", path, id1));
+            });
         }
     }
 
-    private static void fillSingle(AtomicInteger namespaceIndex, ResourceLocation type) {
-        String namespace = type.getNamespace();
-        String path = type.getPath();
-        if (!NAMESPACE_MAP.containsKey(namespace)) {
-            int idx = namespaceIndex.getAndIncrement();
-            NAMESPACE_MAP.put(namespace, idx);
-            NAMESPACES.add(namespace);
+    private static void fillSingle(AtomicInteger namespaceIndex, ResourceLocation packetId) {
+        if (!NAMESPACE_MAP.containsKey(packetId.getNamespace())) {
+            NAMESPACE_MAP.put(packetId.getNamespace(), namespaceIndex.get());
+            NAMESPACES.add(packetId.getNamespace());
             PATHS.add(new ArrayList<>());
-            PATH_MAPS.put(idx, new Object2IntOpenHashMap<>());
+            namespaceIndex.getAndIncrement();
         }
-        int nsIdx = NAMESPACE_MAP.getInt(namespace);
-        Object2IntMap<String> pathMap = PATH_MAPS.get(nsIdx);
-        if (!pathMap.containsKey(path)) {
-            int pathIdx = PATHS.get(nsIdx).size();
-            pathMap.put(path, pathIdx);
-            PATHS.get(nsIdx).add(path);
+        PATH_MAPS.compute(namespaceIndex.get() - 1, (namespaceId1, pathMap) -> {
+            if (pathMap == null) {
+                pathMap = new Object2IntOpenHashMap<>();
+            }
+            pathMap.put(packetId.getPath(), pathMap.size());
+            return pathMap;
+        });
+        PATHS.get(namespaceIndex.get() - 1).add(packetId.getPath());
+    }
+
+    private static boolean contains(ResourceLocation type) {
+        if (!initialized) {
+            return false;
         }
+        return NAMESPACE_MAP.containsKey(type.getNamespace()) && PATH_MAPS.get(NAMESPACE_MAP.getInt(type.getNamespace())).containsKey(type.getPath());
     }
 
-    public static int getNamespaceIndex(String namespace) {
-        return NAMESPACE_MAP.getOrDefault(namespace, -1);
+    public static int getNebIndex(ResourceLocation type) {
+        if (initialized && contains(type)) {
+            int namespaceIndex = NAMESPACE_MAP.getInt(type.getNamespace());
+            int pathIndex = PATH_MAPS.get(namespaceIndex).getInt(type.getPath());
+            if (namespaceIndex < 256 && pathIndex < 256) {
+                return 0xc0000000 | (namespaceIndex << 16) | (pathIndex << 8);
+            } else {
+                return 0x80000000 | (namespaceIndex << 12) | (pathIndex);
+            }
+        }
+        return 0;
     }
 
-    public static int getPathIndex(int namespaceIndex, String path) {
-        Object2IntMap<String> pathMap = PATH_MAPS.get(namespaceIndex);
-        if (pathMap == null) return -1;
-        return pathMap.getOrDefault(path, -1);
+    public static int getNebIndexNotTight(ResourceLocation type) {
+        if (initialized && contains(type)) {
+            int namespaceIndex = NAMESPACE_MAP.getInt(type.getNamespace());
+            int pathIndex = PATH_MAPS.get(namespaceIndex).getInt(type.getPath());
+            return 0x80000000 | (namespaceIndex << 12) | (pathIndex);
+        }
+        return 0;
     }
 
-    public static ResourceLocation getIdentifier(int combined, boolean shortForm) {
-        int nsIdx, pathIdx;
-        if (shortForm) {
-            nsIdx = (combined >>> 12) & 0xF;
-            pathIdx = combined & 0xFFF;
+    public static ResourceLocation getIdentifier(int nebIndex, boolean tight) {
+        if (!initialized) {
+            return null;
+        }
+        int namespaceIndex, pathIndex;
+        if (tight) {
+            namespaceIndex = (nebIndex & 0b11111111_00000000) >>> 8;
+            pathIndex = (nebIndex & 0b00000000_11111111);
         } else {
-            nsIdx = (combined >>> 12) & 0xFFF;
-            pathIdx = combined & 0xFFF;
+            namespaceIndex = (nebIndex & 0b11111111_11110000_00000000) >>> 12;
+            pathIndex = (nebIndex & 0b00000000_00001111_11111111);
         }
-        if (nsIdx >= NAMESPACES.size()) return null;
-        ArrayList<String> paths = PATHS.get(nsIdx);
-        if (pathIdx >= paths.size()) return null;
-        return new ResourceLocation(NAMESPACES.get(nsIdx), paths.get(pathIdx));
+        return new ResourceLocation(NAMESPACES.get(namespaceIndex), PATHS.get(namespaceIndex).get(pathIndex));
     }
 }

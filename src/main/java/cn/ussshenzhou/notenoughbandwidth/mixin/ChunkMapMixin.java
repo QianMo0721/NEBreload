@@ -2,6 +2,7 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.chunk.CachedChunkTrackingView;
 import net.minecraft.server.level.ChunkMap;
+import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
@@ -11,6 +12,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * @author USS_Shenzhou
  */
@@ -19,6 +23,16 @@ public abstract class ChunkMapMixin {
     @Shadow
     @Final
     ServerLevel level;
+
+    @Shadow
+    public abstract DistanceManager getDistanceManager();
+
+    private static final Map<Integer, TicketType<Integer>> NEB_CACHE_TICKETS = new ConcurrentHashMap<>();
+
+    private static TicketType<Integer> getCacheTicketType(int ticks) {
+        return NEB_CACHE_TICKETS.computeIfAbsent(ticks,
+                t -> TicketType.create("neb_cache_" + t, Integer::compare, t));
+    }
 
     /**
      * @author Burning_TNT
@@ -43,13 +57,8 @@ public abstract class ChunkMapMixin {
 
             @Override
             public void putTicket(ChunkPos pos, int ticks) {
-                // In Forge 1.20.1, use the standard ticket API
-                level.getChunkSource().addRegionTicket(
-                        TicketType.PLAYER,
-                        pos,
-                        0,
-                        player.chunkPosition()
-                );
+                TicketType<Integer> type = getCacheTicketType(ticks);
+                getDistanceManager().addRegionTicket(type, pos, 1, ticks);
             }
         });
     }

@@ -28,4 +28,12 @@ public class ModKey {
             Minecraft.getInstance().setScreen(new StatScreen());
         }
     }
+
+    @Mod.EventBusSubscriber(value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
+    public static class ModBusHandler {
+        @SubscribeEvent
+        public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
+            event.register(STAT);
+        }
+    }
 }

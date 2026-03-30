@@ -106,7 +106,7 @@ public class PacketAggregationPacket {
         try {
             p.encode(dataBuf);
             // p – type prefix
-            CustomPacketPrefixHelper.writeType(raw, p.type);
+            CustomPacketPrefixHelper.get().index(p.type).save(raw);
             // s – data length
             raw.writeVarInt(dataBuf.readableBytes());
             // d – data bytes

@@ -50,60 +50,56 @@ import javax.annotation.Nullable;
  * @author USS_Shenzhou
  */
 public class CustomPacketPrefixHelper {
+    private static final ThreadLocal<CustomPacketPrefixHelper> INSTANCES = ThreadLocal.withInitial(CustomPacketPrefixHelper::new);
 
-    public static void writeType(FriendlyByteBuf buf, ResourceLocation type) {
-        if (!NamespaceIndexManager.isInitialized()) {
-            // fallback: write full ResourceLocation
-            buf.writeByte(0x00);
-            buf.writeResourceLocation(type);
-            return;
+    private int prefix = 0;
+    private ResourceLocation type = null;
+
+    private CustomPacketPrefixHelper() {
+    }
+
+    public static CustomPacketPrefixHelper get() {
+        var instance = INSTANCES.get();
+        instance.prefix = 0;
+        instance.type = null;
+        return instance;
+    }
+
+    public CustomPacketPrefixHelper index(ResourceLocation type) {
+        int index = NamespaceIndexManager.getNebIndex(type);
+        if (index == 0) {
+            this.type = type;
+            return this;
         }
+        this.type = type;
+        prefix |= index;
+        return this;
+    }
 
-        String namespace = type.getNamespace();
-        String path = type.getPath();
-        int nsIdx = NamespaceIndexManager.getNamespaceIndex(namespace);
-        int pathIdx = nsIdx >= 0 ? NamespaceIndexManager.getPathIndex(nsIdx, path) : -1;
-
-        if (nsIdx < 0 || pathIdx < 0) {
-            // fallback
-            buf.writeByte(0x00);
+    public void save(FriendlyByteBuf buf) {
+        if (prefix >>> 31 == 0) {
+            buf.writeByte(prefix >>> 24);
             buf.writeResourceLocation(type);
-            return;
         }
-
-        if (nsIdx < 16 && pathIdx < 16) {
-            // tight: 1 byte prefix + 2 bytes (4+4 bits each)
-            // Actually use: i=1, t=1 => 0xC0 flag
-            // pack nsIdx (4 bits) + pathIdx (4 bits) into 1 byte
-            // But we need to handle larger cases, use 2-byte tight form:
-            // tight: nsIdx ≤ 255, pathIdx ≤ 255
-            buf.writeByte(0x80 | 0x40); // i=1, t=1
-            buf.writeByte(nsIdx & 0xFF);
-            buf.writeByte(pathIdx & 0xFF);
-        } else {
-            // normal indexed: 3 bytes for 12+12 bits
-            int combined = ((nsIdx & 0xFFF) << 12) | (pathIdx & 0xFFF);
-            buf.writeByte(0x80); // i=1, t=0
-            buf.writeMedium(combined);
+        if (prefix >>> 31 == 1) {
+            if ((prefix >>> 30 & 1) == 1) {
+                buf.writeMedium(prefix >>> 8);
+            } else {
+                buf.writeInt(prefix);
+            }
         }
     }
 
     @Nullable
     public static ResourceLocation getType(FriendlyByteBuf buf) {
         int fixed = buf.readUnsignedByte() & 0xff;
-        if ((fixed & 0x80) == 0) {
-            // not indexed, read full ResourceLocation
+        if (fixed >>> 7 == 0) {
             return buf.readResourceLocation();
         } else {
-            if ((fixed & 0x40) != 0) {
-                // tight indexed
-                int nsIdx = buf.readUnsignedByte();
-                int pathIdx = buf.readUnsignedByte();
-                return NamespaceIndexManager.getIdentifier((nsIdx << 8) | pathIdx, true);
+            if (fixed >>> 6 == 0) {
+                return NamespaceIndexManager.getIdentifier(buf.readUnsignedMedium(), false);
             } else {
-                // normal indexed: 3 bytes = 24 bits = 12+12
-                int combined = buf.readUnsignedMedium();
-                return NamespaceIndexManager.getIdentifier(combined, false);
+                return NamespaceIndexManager.getIdentifier(buf.readUnsignedShort(), true);
             }
         }
     }

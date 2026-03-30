@@ -5,11 +5,13 @@
   "compatibilityLevel": "JAVA_17",
   "mixins": [
     "ChunkMapMixin",
+    "ClientNetworkRegistryMixin",
     "ConnectionMixin",
+    "CustomPacketPayloadMixin",
+    "NetworkRegistryMixin",
     "PacketDecoderMixin",
     "PacketEncoderMixin",
-    "PlayerListMixin",
-    "NetworkRegistryMixin"
+    "PlayerListMixin"
   ],
   "client": [],
   "injectors": {

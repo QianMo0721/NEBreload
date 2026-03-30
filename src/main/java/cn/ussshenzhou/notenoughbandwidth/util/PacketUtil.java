@@ -15,17 +15,33 @@ public class PacketUtil {
 
     /**
      * Get the true ResourceLocation type of a Packet.
-     * For NEB-registered packets uses the registration map.
-     * For vanilla packets, derives from the class name.
+     * Order:
+     * 1) Use Packet#type().id() if available (most reliable on 1.20.1).
+     * 2) For NEB-registered packets use the registration map.
+     * 3) Fallback to class-name-derived minecraft:snake_case.
      */
     public static ResourceLocation getTrueType(Packet<?> packet) {
         return TYPE_CACHE.computeIfAbsent(packet.getClass(), cls -> {
-            // Try to get from Forge network registry first
+            // 1) Try Packet#type().id() (vanilla PacketType path is authoritative)
+            try {
+                var packetType = packet.type();
+                if (packetType != null) {
+                    var idMethod = packetType.getClass().getMethod("id");
+                    Object id = idMethod.invoke(packetType);
+                    if (id instanceof ResourceLocation rl) {
+                        return rl;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+
+            // 2) Try to get from Forge network registry
             ResourceLocation fromRegistry = ModNetworkRegistry.getPacketId(cls);
             if (fromRegistry != null) {
                 return fromRegistry;
             }
-            // For vanilla packets: use simple class name as path under "minecraft" namespace
+
+            // 3) Fallback: use simple class name as path under "minecraft" namespace
             String simpleName = cls.getSimpleName();
             String path = toSnakeCase(simpleName);
             return new ResourceLocation("minecraft", path);
