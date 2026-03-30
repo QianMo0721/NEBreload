@@ -1,0 +1,43 @@
+package cn.ussshenzhou.notenoughbandwidth.zstd;
+
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
+import com.github.luben.zstd.ZstdCompressCtx;
+import com.github.luben.zstd.ZstdDecompressCtx;
+
+import java.io.Closeable;
+import java.nio.ByteBuffer;
+
+/**
+ * @author USS_Shenzhou
+ */
+public class Context implements Closeable {
+    private final ZstdCompressCtx compressCtx;
+    private final ZstdDecompressCtx decompressCtx;
+
+    public Context() {
+        compressCtx = new ZstdCompressCtx();
+        compressCtx.setLevel(3);
+        compressCtx.setContentSize(false);
+        compressCtx.setMagicless(true);
+        compressCtx.setWindowLog(NotEnoughBandwidthConfig.get().getContextLevel());
+        decompressCtx = new ZstdDecompressCtx();
+        decompressCtx.setMagicless(true);
+    }
+
+    public ByteBuffer compress(ByteBuffer src) {
+        return compressCtx.compress(src);
+    }
+
+    public ByteBuffer decompress(ByteBuffer src, int originalSize) {
+        ByteBuffer dst = ByteBuffer.allocateDirect(originalSize);
+        decompressCtx.decompress(dst, src);
+        dst.flip();
+        return dst;
+    }
+
+    @Override
+    public void close() {
+        compressCtx.close();
+        decompressCtx.close();
+    }
+}
