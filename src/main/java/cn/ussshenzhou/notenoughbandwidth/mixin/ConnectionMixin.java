@@ -3,10 +3,10 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
-import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.local.LocalAddress;
 import net.minecraft.network.Connection;
 import net.minecraft.network.PacketListener;
+import net.minecraft.network.PacketSendListener;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ServerGamePacketListener;
@@ -30,13 +30,13 @@ public abstract class ConnectionMixin {
     private volatile PacketListener packetListener;
 
     @Shadow
-    public abstract void send(Packet<?> packet, @Nullable ChannelFutureListener listener, boolean flush);
+    public abstract void send(Packet<?> packet, @Nullable PacketSendListener listener);
 
     @Shadow
     public abstract SocketAddress getRemoteAddress();
 
-    @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lio/netty/channel/ChannelFutureListener;Z)V", at = @At("HEAD"), cancellable = true)
-    private void nebwPacketAggregate(Packet<?> packet, @Nullable ChannelFutureListener listener, boolean flush, CallbackInfo ci) {
+    @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V", at = @At("HEAD"), cancellable = true)
+    private void nebwPacketAggregate(Packet<?> packet, @Nullable PacketSendListener listener, CallbackInfo ci) {
         // only work on play
         if (this.getRemoteAddress() instanceof LocalAddress) {
             return;
@@ -61,7 +61,7 @@ public abstract class ConnectionMixin {
         // de-bundle: in Forge 1.20.1 BundlePacket exists as a vanilla concept
         // Attempt to detect bundle packets via class name (may not exist on all Forge 1.20.1 builds)
         if (isBundlePacket(packet)) {
-            deBundlePacket(packet, listener, flush);
+            deBundlePacket(packet, listener);
             ci.cancel();
             return;
         }
@@ -81,13 +81,13 @@ public abstract class ConnectionMixin {
      * Expand a BundlePacket into individual sub-packets and re-send each.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private void deBundlePacket(Packet<?> bundle, @Nullable ChannelFutureListener listener, boolean flush) {
+    private void deBundlePacket(Packet<?> bundle, @Nullable PacketSendListener listener) {
         try {
             // BundlePacket has subPackets() method returning Iterable<Packet<?>>
             var method = bundle.getClass().getMethod("subPackets");
             Iterable<Packet<?>> subPackets = (Iterable<Packet<?>>) method.invoke(bundle);
             for (Packet<?> p : subPackets) {
-                this.send(p, listener, flush);
+                this.send(p, listener);
             }
         } catch (Exception e) {
             // If we can't de-bundle, just skip aggregation and send normally

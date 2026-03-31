@@ -3,7 +3,7 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
 import cn.ussshenzhou.notenoughbandwidth.indextype.NamespaceIndexManager;
 import net.minecraft.network.Connection;
-import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -21,7 +21,7 @@ public class NetworkRegistryMixin {
     @Inject(method = "placeNewPlayer", at = @At("HEAD"))
     private void nebwInitOnFirstPlayer(
             Connection connection,
-            ServerGamePacketListenerImpl gamePacketListener,
+            ServerPlayer player,
             CallbackInfo ci) {
         // Initialize index and aggregation manager once when first player connects.
         // NamespaceIndexManager.init() is idempotent (checks initialized flag internally).
