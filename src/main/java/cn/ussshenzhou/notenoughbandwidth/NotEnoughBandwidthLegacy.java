@@ -4,18 +4,17 @@ import cn.ussshenzhou.notenoughbandwidth.config.ConfigHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry;
 import com.mojang.logging.LogUtils;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 
 /**
  * @author USS_Shenzhou
  */
 @Mod(ModConstants.MOD_ID)
-public class NotEnoughBandwidth {
+public class NotEnoughBandwidthLegacy {
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    public NotEnoughBandwidth() {
-        ConfigHelper.loadConfig(new NotEnoughBandwidthConfig());
+    public NotEnoughBandwidthLegacy() {
+        ConfigHelper.loadConfig(new NotEnoughBandwidthLegacyConfig());
 
         // Register the Forge simple channel (PacketAggregationPacket, StatQuery, StatRespond)
         ModNetworkRegistry.register();

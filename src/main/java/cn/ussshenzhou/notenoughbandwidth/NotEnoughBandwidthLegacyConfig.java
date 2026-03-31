@@ -11,7 +11,7 @@ import java.util.HashSet;
 /**
  * @author USS_Shenzhou
  */
-public class NotEnoughBandwidthConfig implements TConfig {
+public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     public boolean compatibleMode = false;
     public HashSet<String> blackList = new HashSet<>() {{
@@ -43,8 +43,8 @@ public class NotEnoughBandwidthConfig implements TConfig {
         add("minecraft:custom_payload");
     }};
 
-    public static NotEnoughBandwidthConfig get() {
-        return ConfigHelper.getConfigRead(NotEnoughBandwidthConfig.class);
+    public static NotEnoughBandwidthLegacyConfig get() {
+        return ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class);
     }
 
     public static boolean skipType(String type) {

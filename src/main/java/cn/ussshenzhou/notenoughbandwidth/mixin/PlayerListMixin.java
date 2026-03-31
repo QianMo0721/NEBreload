@@ -1,6 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
-import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import net.minecraft.server.players.PlayerList;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
@@ -17,7 +17,7 @@ public class PlayerListMixin {
     ), argsOnly = true)
     private int modifyViewDistance(int viewDistance) {
         try {
-            return viewDistance + NotEnoughBandwidthConfig.get().dccDistance;
+            return viewDistance + NotEnoughBandwidthLegacyConfig.get().dccDistance;
         } catch (IllegalStateException e) {
             return viewDistance;
         }

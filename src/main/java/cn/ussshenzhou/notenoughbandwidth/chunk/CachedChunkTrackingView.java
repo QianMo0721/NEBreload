@@ -1,6 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.chunk;
 
-import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import com.mojang.logging.LogUtils;
 import it.unimi.dsi.fastutil.longs.Long2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
@@ -79,7 +79,7 @@ public class CachedChunkTrackingView {
 
     private void tick(ServerPlayer player, ChunkPos oldCenter, int oldVD, ChunkPos newCenter, int newVD, Context context) {
         long now = System.currentTimeMillis();
-        var cfg = NotEnoughBandwidthConfig.get();
+        var cfg = NotEnoughBandwidthLegacyConfig.get();
         int chunkCacheTimeout = cfg.dccTimeout;
         int chunkCacheDistance = newVD + cfg.dccDistance;
         int chunkCacheSizeLimit = cfg.dccSizeLimit;

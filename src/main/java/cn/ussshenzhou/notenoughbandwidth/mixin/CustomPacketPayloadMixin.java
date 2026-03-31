@@ -1,6 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
-import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
@@ -19,7 +19,7 @@ public class CustomPacketPayloadMixin {
     @Redirect(method = "write(Lnet/minecraft/network/FriendlyByteBuf;)V",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/network/FriendlyByteBuf;writeResourceLocation(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/network/FriendlyByteBuf;"))
     private FriendlyByteBuf nebwIndexedHeaderEncode(FriendlyByteBuf buf, ResourceLocation id) {
-        if (NotEnoughBandwidthConfig.skipType(id.toString())) {
+        if (NotEnoughBandwidthLegacyConfig.skipType(id.toString())) {
             buf.writeResourceLocation(id);
             return buf;
         }
@@ -35,7 +35,7 @@ public class CustomPacketPayloadMixin {
         try {
             var tryRead = new FriendlyByteBuf(buf.retainedDuplicate());
             var tryType = tryRead.readResourceLocation();
-            if (NotEnoughBandwidthConfig.skipType(tryType.toString())) {
+            if (NotEnoughBandwidthLegacyConfig.skipType(tryType.toString())) {
                 return buf.readResourceLocation();
             }
         } catch (Exception ignored) {

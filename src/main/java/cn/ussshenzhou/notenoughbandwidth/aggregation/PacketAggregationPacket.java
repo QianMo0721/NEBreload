@@ -1,7 +1,7 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
-import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.config.ConfigHelper;
 import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
@@ -78,7 +78,7 @@ public class PacketAggregationPacket {
                 this.bakedSize = rawSize;
             }
 
-            if (ConfigHelper.getConfigRead(NotEnoughBandwidthConfig.class).debugLog) {
+            if (ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class).debugLog) {
                 LogUtils.getLogger().debug("[NEB] Encoded {} sub-packets, baked size: {}",
                         packetsToEncode.size(), bakedSize);
             }
@@ -88,7 +88,7 @@ public class PacketAggregationPacket {
     }
 
     private static void logCompressRatio(int rawSize, int compressedSize) {
-        if (ConfigHelper.getConfigRead(NotEnoughBandwidthConfig.class).debugLog) {
+        if (ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class).debugLog) {
             LogUtils.getLogger().debug("[NEB] Compressed: {} -> {} bytes ({} %)",
                     rawSize, compressedSize,
                     String.format("%.2f", 100f * compressedSize / rawSize));
@@ -158,7 +158,7 @@ public class PacketAggregationPacket {
                 raw.release();
             }
 
-            if (ConfigHelper.getConfigRead(NotEnoughBandwidthConfig.class).debugLog) {
+            if (ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class).debugLog) {
                 LogUtils.getLogger().debug("[NEB] Handling {} sub-packets", packetsToHandle.size());
             }
 

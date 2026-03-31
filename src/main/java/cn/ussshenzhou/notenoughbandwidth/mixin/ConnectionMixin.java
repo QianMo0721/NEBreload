@@ -1,6 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
-import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.channel.local.LocalAddress;
@@ -53,7 +53,7 @@ public abstract class ConnectionMixin {
             return;
         }
         // compatibility and avoid infinite loop
-        if (NotEnoughBandwidthConfig.skipType(PacketUtil.getTrueType(packet).toString())) {
+        if (NotEnoughBandwidthLegacyConfig.skipType(PacketUtil.getTrueType(packet).toString())) {
             // flush to ensure packet order
             AggregationManager.flushConnection((Connection) (Object) this);
             return;

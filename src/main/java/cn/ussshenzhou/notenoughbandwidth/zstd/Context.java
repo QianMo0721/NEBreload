@@ -1,6 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.zstd;
 
-import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import com.github.luben.zstd.ZstdCompressCtx;
 import com.github.luben.zstd.ZstdDecompressCtx;
 
@@ -19,7 +19,7 @@ public class Context implements Closeable {
         compressCtx.setLevel(3);
         compressCtx.setContentSize(false);
         compressCtx.setMagicless(true);
-        compressCtx.setWindowLog(NotEnoughBandwidthConfig.get().getContextLevel());
+        compressCtx.setWindowLog(NotEnoughBandwidthLegacyConfig.get().getContextLevel());
         decompressCtx = new ZstdDecompressCtx();
         decompressCtx.setMagicless(true);
     }
