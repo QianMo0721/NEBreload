@@ -86,7 +86,7 @@ minecraft {
 
 mixin {
     add sourceSets.main, 'neb.refmap.json'
-    config 'neb.mixins.json'
+    config 'nebl.mixins.json'
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
@@ -148,7 +148,7 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Version'  : project.jar.archiveVersion,
                 'Implementation-Vendor'   : mod_authors,
                 'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
-                'MixinConfigs'            : 'neb.mixins.json'
+                'MixinConfigs'            : 'nebl.mixins.json'
         ])
     }
     finalizedBy 'reobfJar'

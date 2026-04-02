@@ -10,7 +10,9 @@ import net.minecraftforge.fml.loading.FMLEnvironment;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -23,9 +25,6 @@ public class NamespaceIndexManager {
     private static final Object2IntMap<String> NAMESPACE_MAP = new Object2IntOpenHashMap<>();
     private static final HashMap<Integer, Object2IntMap<String>> PATH_MAPS = new HashMap<>();
 
-    /**
-     * @see net.minecraft.network.protocol.game.GamePacketTypes
-     */
     private static final List<String> VANILLA_PATHS = new ArrayList<>() {{
         add("bundle");
         add("bundle_delimiter");
@@ -214,13 +213,14 @@ public class NamespaceIndexManager {
     }
 
     /**
-     * Initialize by collecting packet types from the Forge network registry.
-     * Gathers all ResourceLocations registered in ModNetworkRegistry.CLASS_TO_ID,
-     * plus pre-seeded vanilla paths.
+     * Initialize by collecting packet types from multiple Forge-side sources.
+     * Besides NEB's own registered packets, also includes remote-present Forge channels
+     * so custom payload identifiers can participate in NEB indexing.
      */
     public synchronized static void initFromRegistry() {
-        var types = new java.util.ArrayList<ResourceLocation>(
-                cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry.CLASS_TO_ID.values());
+        var types = new java.util.ArrayList<ResourceLocation>();
+        types.addAll(cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry.CLASS_TO_ID.values());
+        types.addAll(collectForgeChannelNames());
         init(types);
     }
 
@@ -246,12 +246,33 @@ public class NamespaceIndexManager {
     }
 
     private static void indexVanillaPackets(AtomicInteger namespaceIndex) {
-        VANILLA_PATHS.forEach(path -> fillSingle(namespaceIndex, new ResourceLocation("minecraft", path)));
+        VANILLA_PATHS.forEach(path -> fillSingle(namespaceIndex, ResourceLocation.fromNamespaceAndPath("minecraft", path)));
     }
 
     private static void indexCustomPayloads(List<ResourceLocation> types, AtomicInteger namespaceIndex) {
-        types.sort(Comparator.comparing(ResourceLocation::getNamespace).thenComparing(ResourceLocation::getPath));
-        types.forEach(type -> fillSingle(namespaceIndex, type));
+        Set<ResourceLocation> unique = new HashSet<>(types);
+        var sorted = new ArrayList<>(unique);
+        sorted.sort(Comparator.comparing(ResourceLocation::getNamespace).thenComparing(ResourceLocation::getPath));
+        sorted.forEach(type -> fillSingle(namespaceIndex, type));
+    }
+
+    private static List<ResourceLocation> collectForgeChannelNames() {
+        var result = new ArrayList<ResourceLocation>();
+        try {
+            var instancesField = net.minecraftforge.network.NetworkRegistry.class.getDeclaredField("instances");
+            instancesField.setAccessible(true);
+            Object value = instancesField.get(null);
+            if (value instanceof java.util.Map<?, ?> map) {
+                for (Object key : map.keySet()) {
+                    if (key instanceof ResourceLocation rl && !"fml".equals(rl.getNamespace())) {
+                        result.add(rl);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LogUtils.getLogger().debug("Failed to collect Forge channel names for NamespaceIndexManager", e);
+        }
+        return result;
     }
 
     private static void initTrace() {
@@ -272,14 +293,17 @@ public class NamespaceIndexManager {
             PATHS.add(new ArrayList<>());
             namespaceIndex.getAndIncrement();
         }
-        PATH_MAPS.compute(namespaceIndex.get() - 1, (namespaceId1, pathMap) -> {
+        int namespaceId = NAMESPACE_MAP.getInt(packetId.getNamespace());
+        PATH_MAPS.compute(namespaceId, (namespaceId1, pathMap) -> {
             if (pathMap == null) {
                 pathMap = new Object2IntOpenHashMap<>();
             }
-            pathMap.put(packetId.getPath(), pathMap.size());
+            if (!pathMap.containsKey(packetId.getPath())) {
+                pathMap.put(packetId.getPath(), pathMap.size());
+                PATHS.get(namespaceId).add(packetId.getPath());
+            }
             return pathMap;
         });
-        PATHS.get(namespaceIndex.get() - 1).add(packetId.getPath());
     }
 
     private static boolean contains(ResourceLocation type) {
@@ -323,6 +347,6 @@ public class NamespaceIndexManager {
             namespaceIndex = (nebIndex & 0b11111111_11110000_00000000) >>> 12;
             pathIndex = (nebIndex & 0b00000000_00001111_11111111);
         }
-        return new ResourceLocation(NAMESPACES.get(namespaceIndex), PATHS.get(namespaceIndex).get(pathIndex));
+        return ResourceLocation.fromNamespaceAndPath(NAMESPACES.get(namespaceIndex), PATHS.get(namespaceIndex).get(pathIndex));
     }
 }

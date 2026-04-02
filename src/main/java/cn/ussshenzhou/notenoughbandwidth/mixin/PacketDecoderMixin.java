@@ -31,8 +31,6 @@ public class PacketDecoderMixin {
                 Object truePacket = PacketUtil.getTruePacket(packet);
                 if (truePacket instanceof PacketAggregationPacket aggregationPacket) {
                     aggregationPacket.setBakedSize(size);
-                } else {
-                    SimpleStatManager.inRaw(size);
                 }
             }
         }

@@ -24,11 +24,5 @@ public class PacketEncoderMixin {
     private void nebRecordOut(ChannelHandlerContext ctx, Packet packet, ByteBuf output, CallbackInfo ci) {
         int size = output.readableBytes();
         SimpleStatManager.outBaked(size);
-        Object truePacket = PacketUtil.getTruePacket(packet);
-        if (truePacket instanceof PacketAggregationPacket aggregationPacket) {
-            SimpleStatManager.outRaw(size - aggregationPacket.getBakedSize());
-        } else {
-            SimpleStatManager.outRaw(size);
-        }
     }
 }

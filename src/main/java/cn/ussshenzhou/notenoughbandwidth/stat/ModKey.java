@@ -19,7 +19,7 @@ import org.lwjgl.glfw.GLFW;
 public class ModKey {
     public static final KeyMapping STAT = new KeyMapping(
             "key.neb.stat", KeyConflictContext.UNIVERSAL, KeyModifier.ALT,
-            InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_N, "key.categories.neb"
+            InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_N, "notenoughbandwidth.stat"
     );
 
     @SubscribeEvent

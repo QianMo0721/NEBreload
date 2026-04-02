@@ -18,28 +18,28 @@ public class CustomPacketPayloadMixin {
 
     @Redirect(method = "write(Lnet/minecraft/network/FriendlyByteBuf;)V",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/network/FriendlyByteBuf;writeResourceLocation(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/network/FriendlyByteBuf;"))
-    private FriendlyByteBuf nebwIndexedHeaderEncode(FriendlyByteBuf buf, ResourceLocation id) {
+    private FriendlyByteBuf nebwIndexedHeaderEncode(FriendlyByteBuf targetBuf, ResourceLocation id, FriendlyByteBuf packetBuf) {
         if (NotEnoughBandwidthLegacyConfig.skipType(id.toString())) {
-            buf.writeResourceLocation(id);
-            return buf;
+            targetBuf.writeResourceLocation(id);
+            return targetBuf;
         }
         CustomPacketPrefixHelper.get()
                 .index(id)
-                .save(buf);
-        return buf;
+                .save(targetBuf);
+        return targetBuf;
     }
 
     @Redirect(method = "<init>(Lnet/minecraft/network/FriendlyByteBuf;)V",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/network/FriendlyByteBuf;readResourceLocation()Lnet/minecraft/resources/ResourceLocation;"))
-    private ResourceLocation nebwIndexedHeaderDecode(FriendlyByteBuf buf) {
+    private ResourceLocation nebwIndexedHeaderDecode(FriendlyByteBuf targetBuf, FriendlyByteBuf packetBuf) {
         try {
-            var tryRead = new FriendlyByteBuf(buf.retainedDuplicate());
+            var tryRead = new FriendlyByteBuf(targetBuf.retainedDuplicate());
             var tryType = tryRead.readResourceLocation();
             if (NotEnoughBandwidthLegacyConfig.skipType(tryType.toString())) {
-                return buf.readResourceLocation();
+                return targetBuf.readResourceLocation();
             }
         } catch (Exception ignored) {
         }
-        return CustomPacketPrefixHelper.getType(buf);
+        return CustomPacketPrefixHelper.getType(targetBuf);
     }
 }

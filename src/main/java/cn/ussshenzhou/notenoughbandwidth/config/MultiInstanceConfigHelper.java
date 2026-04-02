@@ -52,51 +52,69 @@ public class MultiInstanceConfigHelper {
         }
         for (File f : instances) {
             try {
-                String json = FileUtils.readFileToString(f, StandardCharsets.UTF_8);
-                TMultiInstanceConfig loaded = (TMultiInstanceConfig) GSON.fromJson(json, clazz);
-                CACHE.computeIfAbsent(clazz, k -> new ConcurrentHashMap<>()).put(loaded.getFileName(), loaded);
-            } catch (IOException e) {
-                LogUtils.getLogger().error("Failed to read config file: " + f, e);
+                TMultiInstanceConfig instance = GSON.fromJson(FileUtils.readFileToString(f, StandardCharsets.UTF_8), clazz);
+                putCache(instance);
+                saveConfig(instance);
+            } catch (IOException ignored) {
+                LogUtils.getLogger().error("Failed to load config {}. Things may not work well.", f);
             }
         }
     }
 
-    @SuppressWarnings("unchecked")
-    public static <T extends TMultiInstanceConfig> T getConfigRead(Class<T> configClass, String fileName) {
-        ConcurrentHashMap<String, TMultiInstanceConfig> map = CACHE.get(configClass);
-        if (map == null) {
-            return null;
+
+    private static <T extends TMultiInstanceConfig> void putCache(T config) {
+        if (CACHE.containsKey(config.getClass())) {
+            CACHE.get(config.getClass()).put(config.getFileName(), config);
+        } else {
+            ConcurrentHashMap<String, TMultiInstanceConfig> children = new ConcurrentHashMap<>();
+            children.put(config.getFileName(), config);
+            CACHE.put(config.getClass(), children);
         }
-        return (T) map.get(fileName);
     }
 
     @SuppressWarnings("unchecked")
-    public static <T extends TMultiInstanceConfig> void getConfigWrite(Class<T> configClass, String fileName, Consumer<T> setter) {
-        ConcurrentHashMap<String, TMultiInstanceConfig> map = CACHE.get(configClass);
-        if (map == null) {
-            return;
-        }
-        T config = (T) map.get(fileName);
-        if (config == null) {
-            return;
-        }
-        setter.accept(config);
+    public static <T extends TMultiInstanceConfig> ConcurrentHashMap<String, T> getConfigInstancesRead(Class<T> configClass) {
+        return (ConcurrentHashMap<String, T>) CACHE.get(configClass);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T extends TMultiInstanceConfig> T getConfigInstanceRead(Class<T> configClass, String childName) {
+        return (T) CACHE.get(configClass).get(childName);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T extends TMultiInstanceConfig> void getConfigInstancesWrite(Class<T> configClass, Consumer<ConcurrentHashMap<String, T>> setter) {
+        ConcurrentHashMap<String, T> configInstances = (ConcurrentHashMap<String, T>) CACHE.get(configClass);
+        setter.accept(configInstances);
+        configInstances.values().forEach(MultiInstanceConfigHelper::saveConfig);
+
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T extends TMultiInstanceConfig> void getConfigInstanceWrite(Class<T> configClass, String childName, Consumer<T> setter) {
+        T configInstances = (T) CACHE.get(configClass).get(childName);
+        setter.accept(configInstances);
+        saveConfig(configInstances);
+    }
+
+    public static <T extends TMultiInstanceConfig> void addNewConfigInstance(T config) {
+        putCache(config);
         saveConfig(config);
     }
 
-    public static <T extends TMultiInstanceConfig> void saveConfig(T config) {
-        File childDir = checkChildDir(config);
-        File configFile = childDir.toPath().resolve(config.getFileName() + ".json").toFile();
-        saveConfigInternal(config, configFile);
+    public static <T extends TMultiInstanceConfig> void removeConfig(T config) {
+        CACHE.get(config.getClass()).remove(config.getFileName());
+        File configFile = checkChildDir(config).toPath().resolve(config.getFileName() + ".json").toFile();
+        configFile.delete();
     }
 
-    private static void saveConfigInternal(TMultiInstanceConfig config, File configFile) {
+    public static <T extends TMultiInstanceConfig> void saveConfig(T config) {
+        File configFile = checkChildDir(config).toPath().resolve(config.getFileName() + ".json").toFile();
         CompletableFuture.runAsync(() -> {
             try {
-                String json = GSON.toJson(config);
-                FileUtils.writeStringToFile(configFile, json, StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                LogUtils.getLogger().error("Failed to write config file: " + configFile, e);
+                FileUtils.write(configFile, GSON.toJson(config), StandardCharsets.UTF_8);
+            } catch (IOException ignored) {
+                LogUtils.getLogger().error("Failed to save config {}. Things may not work well.", config.getClass());
             }
         });
     }

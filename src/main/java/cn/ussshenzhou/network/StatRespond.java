@@ -14,7 +14,7 @@ import java.util.function.Supplier;
  * @author USS_Shenzhou
  */
 public class StatRespond {
-    public static final ResourceLocation TYPE = new ResourceLocation(ModConstants.MOD_ID, "stat_resp");
+    public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_resp");
 
     private final long inboundBytesBaked;
     private final long inboundBytesRaw;

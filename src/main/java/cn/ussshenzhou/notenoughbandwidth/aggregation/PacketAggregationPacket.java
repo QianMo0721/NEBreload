@@ -36,7 +36,7 @@ import java.util.function.Supplier;
  * </pre>
  */
 public class PacketAggregationPacket {
-    public static final ResourceLocation TYPE = new ResourceLocation(ModConstants.MOD_ID, "packet_aggregation_packet");
+    public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "packet_aggregation_packet");
 
     private int bakedSize;
 

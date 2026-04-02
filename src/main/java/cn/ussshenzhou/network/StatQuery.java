@@ -16,7 +16,7 @@ import static cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager.LOCAL;
  * @author USS_Shenzhou
  */
 public class StatQuery {
-    public static final ResourceLocation TYPE = new ResourceLocation(ModConstants.MOD_ID, "stat_query");
+    public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_query");
 
     public StatQuery() {
     }

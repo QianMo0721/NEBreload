@@ -1,15 +1,20 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
+import cn.ussshenzhou.notenoughbandwidth.util.DefaultChannelPipelineHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mojang.logging.LogUtils;
+import io.netty.channel.DefaultChannelPipeline;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.PacketFlow;
 
 import javax.annotation.Nullable;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.WeakHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author USS_Shenzhou
@@ -47,10 +52,6 @@ public class AggregationManager {
                 .add(new AggregatedEncodePacket(packet, type));
     }
 
-    /**
-     * Force flush all buffered packets for a specific connection immediately.
-     * Called when a packet that cannot be aggregated is encountered to maintain packet order.
-     */
     public synchronized static void flushConnection(Connection connection) {
         TIMER.execute(() -> {
             synchronized (AggregationManager.class) {
@@ -72,22 +73,24 @@ public class AggregationManager {
             if (packets == null || packets.isEmpty()) {
                 return;
             }
+
+            DefaultChannelPipeline pipeline = DefaultChannelPipelineHelper.getPipeline(connection);
+            if (pipeline == null) {
+                LogUtils.getLogger().error("[NEB] Failed to get pipeline of connection {}.", connection.getRemoteAddress());
+                return;
+            }
+
+            var encoder = DefaultChannelPipelineHelper.getPacketEncoder(pipeline);
+            if (encoder == null) {
+                LogUtils.getLogger().error("[NEB] Failed to get PacketEncoder of connection {}.", connection.getRemoteAddress());
+                return;
+            }
+
             var sendPackets = new ArrayList<>(packets);
             packets.clear();
 
-            // Build the aggregation packet and send it via the connection.
-            // In Forge 1.20.1 we use the Forge SimpleChannel which wraps the payload.
             var aggregationPacket = new PacketAggregationPacket(sendPackets, connection);
-            // Use ModNetworkRegistry channel to send the aggregation packet
-            // (registered as bidirectional in ModNetworkRegistry.register())
-            cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry.CHANNEL.sendTo(
-                    aggregationPacket,
-                    connection,
-                    connection.getSending() == PacketFlow.SERVERBOUND
-                            ? net.minecraftforge.network.NetworkDirection.PLAY_TO_SERVER
-                            : net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT
-            );
-            // Flush the underlying Netty channel
+            connection.send(DefaultChannelPipelineHelper.toVanillaAggregatedPacket(connection, aggregationPacket));
             if (connection.channel() != null) {
                 connection.channel().flush();
             }

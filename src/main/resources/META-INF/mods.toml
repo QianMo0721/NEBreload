@@ -3,7 +3,7 @@ loaderVersion="${loader_version_range}"
 license="${mod_license}"
 
 [[mixins]]
-    config="neb.mixins.json"
+    config="nebl.mixins.json"
 
 [[mods]]
     modId="${mod_id}"

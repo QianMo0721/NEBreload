@@ -6,6 +6,7 @@ import io.netty.channel.DefaultChannelPipeline;
 import net.minecraft.network.Connection;
 import net.minecraft.network.PacketDecoder;
 import net.minecraft.network.PacketEncoder;
+import net.minecraft.network.protocol.PacketFlow;
 
 import javax.annotation.Nullable;
 import java.lang.reflect.Field;
@@ -112,26 +113,10 @@ public class DefaultChannelPipelineHelper {
         return null;
     }
 
-    /**
-     * Sends an aggregated packet directly via the Forge SimpleChannel.
-     */
-    public static void sendAggregated(Connection connection, PacketAggregationPacket packet) {
-        try {
-            ModNetworkRegistry.CHANNEL.sendTo(
-                    packet,
-                    connection,
-                    net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT
-            );
-        } catch (Exception e1) {
-            try {
-                ModNetworkRegistry.CHANNEL.sendTo(
-                        packet,
-                        connection,
-                        net.minecraftforge.network.NetworkDirection.PLAY_TO_SERVER
-                );
-            } catch (Exception e2) {
-                com.mojang.logging.LogUtils.getLogger().error("[NEB] Failed to send aggregated packet via channel", e2);
-            }
-        }
+    public static net.minecraft.network.protocol.Packet<?> toVanillaAggregatedPacket(Connection connection, PacketAggregationPacket packet) {
+        var direction = connection.getSending() == PacketFlow.CLIENTBOUND
+                ? net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT
+                : net.minecraftforge.network.NetworkDirection.PLAY_TO_SERVER;
+        return ModNetworkRegistry.CHANNEL.toVanillaPacket(packet, direction);
     }
 }
