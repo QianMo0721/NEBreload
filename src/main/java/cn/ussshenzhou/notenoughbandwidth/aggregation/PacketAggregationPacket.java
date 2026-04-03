@@ -1,16 +1,14 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
-import cn.ussshenzhou.notenoughbandwidth.ModConstants;
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthConfig;
 import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
+import cn.ussshenzhou.notenoughbandwidth.network.NebPayloads;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import io.netty.buffer.ByteBufAllocator;
 import net.minecraft.network.ClientConnection;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.network.packet.Packet;
-import net.minecraft.network.packet.c2s.play.CustomPayloadC2SPacket;
-import net.minecraft.network.packet.s2c.play.CustomPayloadS2CPacket;
 import net.minecraft.util.Identifier;
 
 import java.util.ArrayList;
@@ -19,8 +17,6 @@ import java.util.ArrayList;
  * @author USS_Shenzhou
  */
 public class PacketAggregationPacket {
-    public static final Identifier ID = Identifier.of(ModConstants.MOD_ID, "packet_aggregation_packet");
-
     private int bakedSize;
     private final ArrayList<AggregatedEncodePacket> packetsToEncode;
     private ClientConnection connection;
@@ -36,10 +32,10 @@ public class PacketAggregationPacket {
         this.data = new PacketByteBuf(buffer.copy());
     }
 
-    public Packet<?> toPacket(boolean clientbound) {
+    public NebPayloads.PacketAggregationPayload toPayload() {
         PacketByteBuf buffer = new PacketByteBuf(ByteBufAllocator.DEFAULT.buffer());
         encode(buffer);
-        return clientbound ? new CustomPayloadS2CPacket(ID, buffer) : new CustomPayloadC2SPacket(ID, buffer);
+        return new NebPayloads.PacketAggregationPayload(buffer);
     }
 
     public void encode(PacketByteBuf buffer) {
@@ -157,8 +153,7 @@ public class PacketAggregationPacket {
     }
 
     public static boolean isAggregationPacket(Packet<?> packet) {
-        return packet instanceof CustomPayloadC2SPacket c2s && ID.equals(c2s.getChannel())
-                || packet instanceof CustomPayloadS2CPacket s2c && ID.equals(s2c.getChannel());
+        return PacketUtilCompat.isAggregationPacket(packet);
     }
 
     public static boolean shouldSkip(Packet<?> packet) {
@@ -171,5 +166,12 @@ public class PacketAggregationPacket {
 
     public void setBakedSize(int bakedSize) {
         this.bakedSize = bakedSize;
+    }
+
+    private static final class PacketUtilCompat {
+        private static boolean isAggregationPacket(Packet<?> packet) {
+            Identifier type = cn.ussshenzhou.notenoughbandwidth.util.PacketUtil.getTrueType(packet);
+            return NebPayloads.PACKET_AGGREGATION_ID.equals(type);
+        }
     }
 }

@@ -7,13 +7,31 @@ import net.minecraft.network.PacketByteBuf;
 import net.minecraft.util.Identifier;
 
 public final class NebPayloads {
-    public static final PacketType<StatQueryPayload> STAT_QUERY = PacketType.create(new Identifier(ModConstants.MOD_ID, "stat_query"), StatQueryPayload::new);
-    public static final PacketType<StatRespondPayload> STAT_RESPOND = PacketType.create(new Identifier(ModConstants.MOD_ID, "stat_resp"), StatRespondPayload::new);
+    public static final Identifier PACKET_AGGREGATION_ID = Identifier.of(ModConstants.MOD_ID, "packet_aggregation_packet");
+    public static final PacketType<PacketAggregationPayload> PACKET_AGGREGATION = PacketType.create(PACKET_AGGREGATION_ID, PacketAggregationPayload::new);
+    public static final PacketType<StatQueryPayload> STAT_QUERY = PacketType.create(Identifier.of(ModConstants.MOD_ID, "stat_query"), StatQueryPayload::new);
+    public static final PacketType<StatRespondPayload> STAT_RESPOND = PacketType.create(Identifier.of(ModConstants.MOD_ID, "stat_resp"), StatRespondPayload::new);
 
     private NebPayloads() {
     }
 
     public static void init() {
+    }
+
+    public record PacketAggregationPayload(PacketByteBuf data) implements FabricPacket {
+        public PacketAggregationPayload {
+            data = new PacketByteBuf(data.copy());
+        }
+
+        @Override
+        public void write(PacketByteBuf buf) {
+            buf.writeBytes(data, data.readerIndex(), data.readableBytes());
+        }
+
+        @Override
+        public PacketType<?> getType() {
+            return PACKET_AGGREGATION;
+        }
     }
 
     public record StatQueryPayload() implements FabricPacket {

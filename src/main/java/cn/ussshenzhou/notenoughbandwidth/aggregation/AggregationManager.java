@@ -1,14 +1,14 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
+import cn.ussshenzhou.notenoughbandwidth.network.NebPayloads;
 import cn.ussshenzhou.notenoughbandwidth.util.DefaultChannelPipelineHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.channel.DefaultChannelPipeline;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.ClientConnection;
 import net.minecraft.network.DecoderHandler;
 import net.minecraft.network.PacketEncoder;
 import net.minecraft.network.packet.Packet;
-import net.minecraft.network.packet.c2s.play.CustomPayloadC2SPacket;
-import net.minecraft.network.packet.s2c.play.CustomPayloadS2CPacket;
 import net.minecraft.util.Identifier;
 
 import java.util.ArrayList;
@@ -79,11 +79,12 @@ public class AggregationManager {
                 return;
             }
             ArrayList<AggregatedEncodePacket> sendPackets = new ArrayList<>(packets);
-            boolean clientbound = connection.getSide() == net.minecraft.network.NetworkSide.CLIENTBOUND;
             PacketAggregationPacket aggregationPacket = new PacketAggregationPacket(sendPackets, connection);
             packets.clear();
-            connection.send(aggregationPacket.toPacket(clientbound));
-            ((cn.ussshenzhou.notenoughbandwidth.mixin.ClientConnectionAccessor) (Object) connection).nebl$getChannel().flush();
+            if (connection.getSide() == net.minecraft.network.NetworkSide.CLIENTBOUND && connection.getPacketListener() instanceof net.minecraft.server.network.ServerPlayNetworkHandler serverHandler) {
+                ServerPlayNetworking.send(serverHandler.player, aggregationPacket.toPayload());
+                ((cn.ussshenzhou.notenoughbandwidth.mixin.ClientConnectionAccessor) (Object) connection).nebl$getChannel().flush();
+            }
         } catch (Exception ignored) {
             packets.clear();
         }
@@ -93,11 +94,12 @@ public class AggregationManager {
         if (!PacketAggregationPacket.isAggregationPacket(packet)) {
             return;
         }
-        PacketAggregationPacket aggregationPacket = packet instanceof CustomPayloadC2SPacket c2s
-                ? new PacketAggregationPacket(c2s.getData())
-                : new PacketAggregationPacket(((CustomPayloadS2CPacket) packet).getData());
-        PacketUtil.getPayloadData(packet).markReaderIndex();
-        aggregationPacket.setBakedSize(PacketUtil.getPayloadData(packet).readableBytes());
+        net.minecraft.network.PacketByteBuf payloadData = PacketUtil.getPayloadData(packet);
+        if (payloadData == null) {
+            return;
+        }
+        PacketAggregationPacket aggregationPacket = new PacketAggregationPacket(payloadData);
+        aggregationPacket.setBakedSize(payloadData.readableBytes());
         aggregationPacket.decode(connection).forEach(p -> {
             try {
                 p.handle(connection.getPacketListener());
