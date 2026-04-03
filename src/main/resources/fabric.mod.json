@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "nebl",
+  "version": "${version}",
+  "name": "Not Enough Bandwidth Legacy",
+  "description": "Port of the NeoForge mod to Fabric 1.20.1.",
+  "authors": [
+    "USS_Shenzhou"
+  ],
+  "license": "All Rights Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacy"
+    ],
+    "client": [
+      "cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyClient"
+    ]
+  },
+  "mixins": [
+    "nebl.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.20.1",
+    "java": ">=17",
+    "fabric-api": "*"
+  }
+}
