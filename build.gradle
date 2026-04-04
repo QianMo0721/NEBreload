@@ -85,7 +85,7 @@ minecraft {
 }
 
 mixin {
-    add sourceSets.main, 'neb.refmap.json'
+    add sourceSets.main, 'nebl.refmap.json'
     config 'nebl.mixins.json'
 }
 
@@ -105,6 +105,10 @@ repositories {
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+
+    annotationProcessor fileTree("${gradle.gradleUserHomeDir}/caches/modules-2/files-2.1/org.spongepowered/mixin") {
+        include '**/mixin-0.8.5-processor.jar'
+    }
 
     // zstd-jni
     implementation fg.deobf('com.github.luben:zstd-jni:1.5.5-5')
