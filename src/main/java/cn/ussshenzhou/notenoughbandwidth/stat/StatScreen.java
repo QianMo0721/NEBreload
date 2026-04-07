@@ -33,7 +33,7 @@ public class StatScreen extends Screen {
     public void tick() {
         super.tick();
         if (tick % 10 == 0) {
-            cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry.CHANNEL.sendToServer(new StatQuery());
+            cn.ussshenzhou.network.ModNetworkRegistry.QUERY_CHANNEL.sendToServer(new StatQuery());
             actualC = "↓ Inbound  "
                     + getReadableSpeed((int) LOCAL.inboundSpeedBaked().averageIn1s())
                     + "  Total  "

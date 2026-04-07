@@ -4,7 +4,6 @@ import cn.ussshenzhou.notenoughbandwidth.util.DefaultChannelPipelineHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mojang.logging.LogUtils;
-import io.netty.channel.DefaultChannelPipeline;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;
 
@@ -53,12 +52,8 @@ public class AggregationManager {
     }
 
     public synchronized static void flushConnection(Connection connection) {
-        TIMER.execute(() -> {
-            synchronized (AggregationManager.class) {
-                PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
-                flushInternal(connection, PACKET_BUFFER.get(connection));
-            }
-        });
+        PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
+        flushInternal(connection, PACKET_BUFFER.get(connection));
     }
 
     private synchronized static void flush() {
@@ -74,15 +69,7 @@ public class AggregationManager {
                 return;
             }
 
-            DefaultChannelPipeline pipeline = DefaultChannelPipelineHelper.getPipeline(connection);
-            if (pipeline == null) {
-                LogUtils.getLogger().error("[NEB] Failed to get pipeline of connection {}.", connection.getRemoteAddress());
-                return;
-            }
-
-            var encoder = DefaultChannelPipelineHelper.getPacketEncoder(pipeline);
-            if (encoder == null) {
-                LogUtils.getLogger().error("[NEB] Failed to get PacketEncoder of connection {}.", connection.getRemoteAddress());
+            if (connection.channel() == null || !connection.isConnected()) {
                 return;
             }
 

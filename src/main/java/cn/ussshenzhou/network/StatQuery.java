@@ -33,7 +33,7 @@ public class StatQuery {
         ctx.enqueueWork(() -> {
             ServerPlayer serverPlayer = ctx.getSender();
             if (serverPlayer != null && serverPlayer.hasPermissions(2)) {
-                cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry.CHANNEL.sendTo(
+                cn.ussshenzhou.network.ModNetworkRegistry.RESPOND_CHANNEL.sendTo(
                         new StatRespond(
                                 LOCAL.inboundBytesBaked().get(),
                                 LOCAL.inboundBytesRaw().get(),

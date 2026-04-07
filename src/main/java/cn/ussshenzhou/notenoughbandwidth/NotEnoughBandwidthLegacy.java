@@ -16,8 +16,13 @@ public class NotEnoughBandwidthLegacy {
     public NotEnoughBandwidthLegacy() {
         ConfigHelper.loadConfig(new NotEnoughBandwidthLegacyConfig());
 
-        // Register the Forge simple channel (PacketAggregationPacket, StatQuery, StatRespond)
+        // Keep the aggregation payload channel registered so Forge advertises and
+        // accepts the custom payload id during channel negotiation, even though
+        // the actual send/receive path is now handled directly via custom payload packets.
         ModNetworkRegistry.register();
+
+        // Register debug/stat packets separately, matching the original project structure.
+        cn.ussshenzhou.network.ModNetworkRegistry.register();
 
         // ModKey uses @EventBusSubscriber(value = Dist.CLIENT, bus = Bus.FORGE)
         // so key registration happens automatically via Forge event system.

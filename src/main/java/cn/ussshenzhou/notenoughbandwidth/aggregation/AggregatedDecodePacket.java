@@ -9,10 +9,10 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.PacketListener;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkEvent;
-
-import java.util.function.Supplier;
 
 /**
  * @author USS_Shenzhou
@@ -47,9 +47,10 @@ public class AggregatedDecodePacket {
             PacketFlow receivingFlow = getReceivingFlow(listener);
             Packet<?> packet = tryCreateVanillaPacket(receivingFlow);
             if (packet != null) {
+                Packet<?> finalPacket = packet;
                 context.enqueueWork(() -> {
                     try {
-                        ((Packet<PacketListener>) packet).handle(listener);
+                        ((Packet<PacketListener>) finalPacket).handle(listener);
                     } catch (Exception ex) {
                         LOGGER.error("[NEB] Exception handling vanilla sub-packet {}", type, ex);
                     }
@@ -57,10 +58,31 @@ public class AggregatedDecodePacket {
                 return;
             }
 
-            handleAsForgeChannelPacket(context);
+            packet = createCustomPayloadPacket(receivingFlow);
+            if (packet != null) {
+                Packet<?> finalPacket = packet;
+                context.enqueueWork(() -> {
+                    try {
+                        ((Packet<PacketListener>) finalPacket).handle(listener);
+                    } catch (Exception ex) {
+                        LOGGER.error("[NEB] Exception handling custom sub-packet {}", type, ex);
+                    }
+                });
+                return;
+            }
+
+            LOGGER.error("[NEB] Skipped: unable to decode aggregated sub-packet {}", type);
         } catch (Exception e) {
             LOGGER.error("[NEB] Skipped: Failed to handle sub-packet {}", type, e);
         }
+    }
+
+    public Packet<?> decode(PacketFlow flow) {
+        Packet<?> packet = tryCreateVanillaPacket(flow);
+        if (packet != null) {
+            return packet;
+        }
+        return createCustomPayloadPacket(flow);
     }
 
     private Packet<?> tryCreateVanillaPacket(PacketFlow flow) {
@@ -74,6 +96,23 @@ public class AggregatedDecodePacket {
         } catch (Exception e) {
             LOGGER.debug("[NEB] tryCreateVanillaPacket failed for {}: {}", type, e.getMessage());
             return null;
+        }
+    }
+
+    private Packet<?> createCustomPayloadPacket(PacketFlow flow) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.ByteBufAllocator.DEFAULT.buffer());
+        try {
+            buf.writeResourceLocation(type);
+            buf.writeBytes(data.duplicate());
+            if (flow == PacketFlow.CLIENTBOUND) {
+                return new ClientboundCustomPayloadPacket(buf);
+            }
+            return new ServerboundCustomPayloadPacket(buf);
+        } catch (Exception e) {
+            LOGGER.debug("[NEB] createCustomPayloadPacket failed for {}: {}", type, e.getMessage());
+            return null;
+        } finally {
+            buf.release();
         }
     }
 
@@ -106,17 +145,8 @@ public class AggregatedDecodePacket {
         }
     }
 
-    /**
-     * Handle as a Forge-registered packet via the SimpleChannel.
-     * This handles NEB-specific packets (StatQuery, StatRespond, PacketAggregationPacket).
-     */
-    private void handleAsForgeChannelPacket(NetworkEvent.Context context) {
-        try {
-            FriendlyByteBuf buf = new FriendlyByteBuf(data.duplicate());
-            cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry.dispatchPacket(type, buf, context);
-        } catch (Exception e) {
-            LOGGER.error("[NEB] Skipped: handleAsForgeChannelPacket failed for {}", type, e);
-        }
+    private static boolean isCustomPayloadType(ResourceLocation typeId) {
+        return !"minecraft".equals(typeId.getNamespace()) || "custom_payload".equals(typeId.getPath());
     }
 
     public ByteBuf getData() {

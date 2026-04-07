@@ -1,12 +1,16 @@
 package cn.ussshenzhou.notenoughbandwidth.util;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.DefaultChannelPipeline;
 import net.minecraft.network.Connection;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.PacketDecoder;
 import net.minecraft.network.PacketEncoder;
 import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 
 import javax.annotation.Nullable;
 import java.lang.reflect.Field;
@@ -20,7 +24,6 @@ public class DefaultChannelPipelineHelper {
     private static final Field HEAD;
     private static final Field TAIL;
     private static final Field NEXT;
-    private static final Field CONNECTION_CHANNEL;
 
     static {
         try {
@@ -44,15 +47,6 @@ public class DefaultChannelPipelineHelper {
             if (next == null) throw new NoSuchFieldException("next field not found in pipeline context hierarchy");
             NEXT = next;
             NEXT.setAccessible(true);
-            // Connection.channel field - try official name first, fallback to SRG
-            Field channelField = null;
-            try {
-                channelField = Connection.class.getDeclaredField("channel");
-            } catch (NoSuchFieldException e) {
-                channelField = Connection.class.getDeclaredField("f_129508_");
-            }
-            CONNECTION_CHANNEL = channelField;
-            CONNECTION_CHANNEL.setAccessible(true);
         } catch (NoSuchFieldException e) {
             throw new RuntimeException(e);
         }
@@ -102,21 +96,24 @@ public class DefaultChannelPipelineHelper {
 
     @Nullable
     public static DefaultChannelPipeline getPipeline(Connection connection) {
-        try {
-            var channel = CONNECTION_CHANNEL.get(connection);
-            if (channel instanceof io.netty.channel.Channel ch && ch.pipeline() instanceof DefaultChannelPipeline pipeline) {
-                return pipeline;
-            }
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
+        var channel = connection.channel();
+        if (channel != null && channel.pipeline() instanceof DefaultChannelPipeline pipeline) {
+            return pipeline;
         }
         return null;
     }
 
     public static net.minecraft.network.protocol.Packet<?> toVanillaAggregatedPacket(Connection connection, PacketAggregationPacket packet) {
-        var direction = connection.getSending() == PacketFlow.CLIENTBOUND
-                ? net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT
-                : net.minecraftforge.network.NetworkDirection.PLAY_TO_SERVER;
-        return ModNetworkRegistry.CHANNEL.toVanillaPacket(packet, direction);
+        FriendlyByteBuf wrapper = new FriendlyByteBuf(ByteBufAllocator.DEFAULT.buffer());
+        try {
+            wrapper.writeResourceLocation(PacketAggregationPacket.TYPE);
+            packet.encode(wrapper);
+            if (connection.getSending() == PacketFlow.CLIENTBOUND) {
+                return new ClientboundCustomPayloadPacket(wrapper);
+            }
+            return new ServerboundCustomPayloadPacket(wrapper);
+        } finally {
+            wrapper.release();
+        }
     }
 }

@@ -5,13 +5,15 @@
   "refmap": "nebl.refmap.json",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
+    "ClientPacketListenerMixin",
     "ChunkMapMixin",
     "ConnectionMixin",
     "CustomPacketPayloadMixin",
     "NetworkRegistryMixin",
     "PacketDecoderMixin",
     "PacketEncoderMixin",
-    "PlayerListMixin"
+    "PlayerListMixin",
+    "ServerGamePacketListenerImplMixin"
   ],
   "client": [],
   "injectors": {

@@ -17,7 +17,11 @@ public class PlayerListMixin {
     ), argsOnly = true)
     private int modifyViewDistance(int viewDistance) {
         try {
-            return viewDistance + NotEnoughBandwidthLegacyConfig.get().dccDistance;
+            var cfg = NotEnoughBandwidthLegacyConfig.get();
+            if (!cfg.isDelayedChunkCachingUsable()) {
+                return viewDistance;
+            }
+            return viewDistance + cfg.getDccDistanceSafe();
         } catch (IllegalStateException e) {
             return viewDistance;
         }

@@ -4,6 +4,8 @@ import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -20,13 +22,26 @@ public class AggregatedEncodePacket {
     }
 
     /**
-     * Encode the packet into {@code buf}.
-     * In Forge 1.20.1, all packets implement {@code Packet#write(FriendlyByteBuf)}.
-     * We simply delegate to that.
+     * Encode only the payload body for game custom-payload packets, because the
+     * aggregated prefix already carries the channel identifier. For normal
+     * vanilla packets, mirror PacketEncoder by delegating to Packet#write.
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
     public void encode(ByteBuf buf) {
         try {
+            if (packet instanceof ClientboundCustomPayloadPacket clientbound) {
+                FriendlyByteBuf payload = clientbound.getData();
+                try {
+                    buf.writeBytes(payload.slice());
+                } finally {
+                    payload.release();
+                }
+                return;
+            }
+            if (packet instanceof ServerboundCustomPayloadPacket serverbound) {
+                buf.writeBytes(serverbound.getData().slice());
+                return;
+            }
             var friendly = new FriendlyByteBuf(buf);
             ((Packet) packet).write(friendly);
         } catch (Exception e) {

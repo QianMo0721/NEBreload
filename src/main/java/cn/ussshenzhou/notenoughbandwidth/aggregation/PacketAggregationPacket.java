@@ -10,6 +10,8 @@ import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBufAllocator;
 import net.minecraft.network.Connection;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkEvent;
 
@@ -134,29 +136,7 @@ public class PacketAggregationPacket {
 
     public void handler(NetworkEvent.Context context) {
         try {
-            this.bakedSize = data.readableBytes();
-
-            // B
-            boolean compressed = data.readBoolean();
-            FriendlyByteBuf raw;
-            if (compressed) {
-                // S
-                int rawSize = data.readVarInt();
-                raw = new FriendlyByteBuf(ZstdHelper.decompress(null, data.retainedDuplicate(), rawSize));
-            } else {
-                raw = new FriendlyByteBuf(data.retainedDuplicate());
-            }
-
-            SimpleStatManager.inRaw(raw.readableBytes());
-
-            var packetsToHandle = new ArrayList<AggregatedDecodePacket>();
-            try {
-                while (raw.readableBytes() > 0) {
-                    deAggregatePacket(raw, packetsToHandle);
-                }
-            } finally {
-                raw.release();
-            }
+            var packetsToHandle = decodeEntries();
 
             if (ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class).debugLog) {
                 LogUtils.getLogger().debug("[NEB] Handling {} sub-packets", packetsToHandle.size());
@@ -177,6 +157,54 @@ public class PacketAggregationPacket {
                 data = null;
             }
         }
+    }
+
+    public ArrayList<Packet<?>> decodeToPackets(PacketFlow flow) {
+        try {
+            var entries = decodeEntries();
+            var result = new ArrayList<Packet<?>>();
+            for (AggregatedDecodePacket entry : entries) {
+                try {
+                    Packet<?> packet = entry.decode(flow);
+                    if (packet != null) {
+                        result.add(packet);
+                    }
+                } finally {
+                    entry.getData().release();
+                }
+            }
+            return result;
+        } finally {
+            if (data != null) {
+                data.release();
+                data = null;
+            }
+        }
+    }
+
+    private ArrayList<AggregatedDecodePacket> decodeEntries() {
+        this.bakedSize = data.readableBytes();
+
+        boolean compressed = data.readBoolean();
+        FriendlyByteBuf raw;
+        if (compressed) {
+            int rawSize = data.readVarInt();
+            raw = new FriendlyByteBuf(ZstdHelper.decompress(null, data.retainedDuplicate(), rawSize));
+        } else {
+            raw = new FriendlyByteBuf(data.retainedDuplicate());
+        }
+
+        SimpleStatManager.inRaw(raw.readableBytes());
+
+        var packetsToHandle = new ArrayList<AggregatedDecodePacket>();
+        try {
+            while (raw.readableBytes() > 0) {
+                deAggregatePacket(raw, packetsToHandle);
+            }
+        } finally {
+            raw.release();
+        }
+        return packetsToHandle;
     }
 
     private void deAggregatePacket(FriendlyByteBuf buf, ArrayList<AggregatedDecodePacket> out) {

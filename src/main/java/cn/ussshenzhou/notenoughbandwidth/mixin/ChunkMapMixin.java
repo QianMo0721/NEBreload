@@ -36,45 +36,76 @@ public abstract class ChunkMapMixin {
     int viewDistance;
 
     private static final Map<Integer, TicketType<Integer>> NEB_CACHE_TICKETS = new ConcurrentHashMap<>();
+    private static final ThreadLocal<Boolean> NEB_INTERNAL_TRACKING = ThreadLocal.withInitial(() -> false);
+    private static final ThreadLocal<Boolean> NEB_UPDATE_PLAYER_STATUS_ADDED = new ThreadLocal<>();
 
     private static TicketType<Integer> getCacheTicketType(int ticks) {
         return NEB_CACHE_TICKETS.computeIfAbsent(ticks,
                 t -> TicketType.create("neb_cache_" + t, Integer::compare, t));
     }
 
-    private void nebUpdateChunkTracking(ServerPlayer player) {
-        if (player.level() != this.level) {
+    private static int nebCacheTicketTicks() {
+        return Math.max(1, cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig.get().getDccTimeoutSafeSeconds() * 20);
+    }
+
+    private static boolean nebCacheEnabled() {
+        return cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig.get().isDelayedChunkCachingUsable();
+    }
+
+    private void nebRemoveCacheTicket(ChunkPos pos) {
+        for (Map.Entry<Integer, TicketType<Integer>> entry : NEB_CACHE_TICKETS.entrySet()) {
+            getDistanceManager().removeRegionTicket(entry.getValue(), pos, 1, entry.getKey());
+        }
+    }
+
+    private void nebTickChunkCache(ServerPlayer player) {
+        if (!nebCacheEnabled()) {
+            CachedChunkTrackingView.clear(player, pos ->
+            {
+                nebRemoveCacheTicket(pos);
+                nebCallVanillaUpdateChunkTracking(player, pos, new MutableObject<>(), true, false);
+            });
             return;
         }
-
-        MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder = new MutableObject<>();
-        CachedChunkTrackingView.onUpdateChunkTracking(player, this.viewDistance, new CachedChunkTrackingView.Context() {
-            @Override
-            public void startChunkTracking(ChunkPos pos) {
-                updateChunkTracking(player, pos, packetHolder, false, true);
-            }
-
-            @Override
-            public void stopChunkTracking(ChunkPos pos) {
-                updateChunkTracking(player, pos, packetHolder, true, false);
-            }
-
-            @Override
-            public void putTicket(ChunkPos pos, int ticks) {
-                TicketType<Integer> type = getCacheTicketType(ticks);
-                getDistanceManager().addRegionTicket(type, pos, 1, ticks);
-            }
+        CachedChunkTrackingView.tick(player, player.chunkPosition(), pos ->
+        {
+            nebRemoveCacheTicket(pos);
+            nebCallVanillaUpdateChunkTracking(player, pos, new MutableObject<>(), true, false);
         });
     }
 
     @Inject(method = "updatePlayerStatus", at = @At("HEAD"))
-    private void nebOnUpdatePlayerStatus(ServerPlayer player, boolean added, CallbackInfo ci) {
-        nebUpdateChunkTracking(player);
+    private void nebBeforeUpdatePlayerStatus(ServerPlayer player, boolean added, CallbackInfo ci) {
+        NEB_UPDATE_PLAYER_STATUS_ADDED.set(added);
     }
 
-    @Inject(method = "move", at = @At("HEAD"))
+    @Inject(method = "updatePlayerStatus", at = @At("TAIL"))
+    private void nebOnUpdatePlayerStatus(ServerPlayer player, boolean added, CallbackInfo ci) {
+        try {
+            if (!added) {
+                CachedChunkTrackingView.clear(player, pos ->
+                {
+                    nebRemoveCacheTicket(pos);
+                    nebCallVanillaUpdateChunkTracking(player, pos, new MutableObject<>(), true, false);
+                });
+                return;
+            }
+            nebTickChunkCache(player);
+        } finally {
+            NEB_UPDATE_PLAYER_STATUS_ADDED.remove();
+        }
+    }
+
+    @Inject(method = "move", at = @At("TAIL"))
     private void nebOnMove(ServerPlayer player, CallbackInfo ci) {
-        nebUpdateChunkTracking(player);
+        nebTickChunkCache(player);
+    }
+
+    @Inject(method = "setViewDistance", at = @At("TAIL"))
+    private void nebOnSetViewDistance(int viewDistance, CallbackInfo ci) {
+        for (ServerPlayer player : this.level.players()) {
+            nebTickChunkCache(player);
+        }
     }
 
     @Redirect(
@@ -92,6 +123,11 @@ public abstract class ChunkMapMixin {
             boolean wasInRange,
             boolean isInRange
     ) {
+        if (Boolean.FALSE.equals(NEB_UPDATE_PLAYER_STATUS_ADDED.get())) {
+            nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+            return;
+        }
+        nebHandleChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
     }
 
     @Redirect(
@@ -109,6 +145,84 @@ public abstract class ChunkMapMixin {
             boolean wasInRange,
             boolean isInRange
     ) {
+        nebHandleChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+    }
+
+    @Redirect(
+            method = "lambda$setViewDistance$51(Lnet/minecraft/world/level/ChunkPos;ILorg/apache/commons/lang3/mutable/MutableObject;Lnet/minecraft/server/level/ServerPlayer;)V",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V"
+            )
+    )
+    private void nebRedirectUpdateChunkTrackingInSetViewDistanceLambda(
+            ChunkMap instance,
+            ServerPlayer player,
+            ChunkPos pos,
+            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
+            boolean wasInRange,
+            boolean isInRange
+    ) {
+        nebHandleChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+    }
+
+    private void nebHandleChunkTracking(
+            ServerPlayer player,
+            ChunkPos pos,
+            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
+            boolean wasInRange,
+            boolean isInRange
+    ) {
+        if (NEB_INTERNAL_TRACKING.get()) {
+            updateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+            return;
+        }
+
+        if (!nebCacheEnabled()) {
+            nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+            return;
+        }
+
+        if (player.level() != this.level) {
+            return;
+        }
+
+        if (!wasInRange && isInRange) {
+            if (CachedChunkTrackingView.onChunkEnter(player, pos)) {
+                nebRemoveCacheTicket(pos);
+                return;
+            }
+            nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, false, true);
+            return;
+        }
+
+        if (wasInRange && !isInRange) {
+            if (CachedChunkTrackingView.onChunkLeave(player, pos, player.chunkPosition())) {
+                int ticks = nebCacheTicketTicks();
+                TicketType<Integer> type = getCacheTicketType(ticks);
+                getDistanceManager().addRegionTicket(type, pos, 1, ticks);
+                return;
+            }
+            nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, true, false);
+            return;
+        }
+
+        nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+    }
+
+    private void nebCallVanillaUpdateChunkTracking(
+            ServerPlayer player,
+            ChunkPos pos,
+            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
+            boolean wasInRange,
+            boolean isInRange
+    ) {
+        NEB_INTERNAL_TRACKING.set(true);
+        try {
+            updateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+        } finally {
+            NEB_INTERNAL_TRACKING.set(false);
+        }
     }
 
     @Shadow

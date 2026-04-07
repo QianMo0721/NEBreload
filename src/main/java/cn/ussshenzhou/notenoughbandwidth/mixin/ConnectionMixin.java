@@ -5,11 +5,10 @@ import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.channel.local.LocalAddress;
 import net.minecraft.network.Connection;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.PacketListener;
 import net.minecraft.network.PacketSendListener;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.game.ClientGamePacketListener;
-import net.minecraft.network.protocol.game.ServerGamePacketListener;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -44,25 +43,21 @@ public abstract class ConnectionMixin {
         if (this.packetListener == null) {
             return;
         }
-        // In Forge 1.20.1, determine PLAY phase by checking listener type
-        // ServerGamePacketListener = server-side play listener
-        // ClientGamePacketListener = client-side play listener
-        boolean isPlayPhase = (this.packetListener instanceof ServerGamePacketListener)
-                || (this.packetListener instanceof ClientGamePacketListener);
-        if (!isPlayPhase) {
-            return;
-        }
-        // compatibility and avoid infinite loop
-        if (NotEnoughBandwidthLegacyConfig.skipType(PacketUtil.getTrueType(packet).toString())) {
-            // flush to ensure packet order
-            AggregationManager.flushConnection((Connection) (Object) this);
-            return;
-        }
         // de-bundle: in Forge 1.20.1 BundlePacket exists as a vanilla concept
         // Attempt to detect bundle packets via class name (may not exist on all Forge 1.20.1 builds)
         if (isBundlePacket(packet)) {
             deBundlePacket(packet, listener);
             ci.cancel();
+            return;
+        }
+        if (!isPlayPacket(packet)) {
+            return;
+        }
+        var packetType = PacketUtil.getTrueType(packet);
+        // compatibility and avoid infinite loop
+        if (NotEnoughBandwidthLegacyConfig.skipType(packetType.toString())) {
+            // flush to ensure packet order
+            AggregationManager.flushConnection((Connection) (Object) this);
             return;
         }
         AggregationManager.takeOver(packet, (Connection) (Object) this);
@@ -75,6 +70,10 @@ public abstract class ConnectionMixin {
      */
     private static boolean isBundlePacket(Packet<?> packet) {
         return packet.getClass().getSimpleName().contains("Bundle");
+    }
+
+    private static boolean isPlayPacket(Packet<?> packet) {
+        return ConnectionProtocol.getProtocolForPacket(packet) == ConnectionProtocol.PLAY;
     }
 
     /**
@@ -94,4 +93,5 @@ public abstract class ConnectionMixin {
             AggregationManager.flushConnection((Connection) (Object) this);
         }
     }
+
 }

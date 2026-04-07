@@ -213,14 +213,14 @@ public class NamespaceIndexManager {
     }
 
     /**
-     * Initialize by collecting packet types from multiple Forge-side sources.
-     * Besides NEB's own registered packets, also includes remote-present Forge channels
-     * so custom payload identifiers can participate in NEB indexing.
+     * Initialize from the negotiated PLAY channel set of the current connection.
+     * This mirrors the original project's behavior more closely than scanning all
+     * locally registered channels, because only mutually visible channels may be
+     * indexed safely on both sides.
      */
-    public synchronized static void initFromRegistry() {
+    public synchronized static void initFromNegotiatedChannels(java.util.Map<ResourceLocation, String> remoteChannels) {
         var types = new java.util.ArrayList<ResourceLocation>();
-        types.addAll(cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry.CLASS_TO_ID.values());
-        types.addAll(collectForgeChannelNames());
+        types.addAll(collectNegotiatedChannelNames(remoteChannels));
         init(types);
     }
 
@@ -256,21 +256,26 @@ public class NamespaceIndexManager {
         sorted.forEach(type -> fillSingle(namespaceIndex, type));
     }
 
-    private static List<ResourceLocation> collectForgeChannelNames() {
+    private static List<ResourceLocation> collectNegotiatedChannelNames(java.util.Map<ResourceLocation, String> remoteChannels) {
         var result = new ArrayList<ResourceLocation>();
+        if (remoteChannels == null || remoteChannels.isEmpty()) {
+            return result;
+        }
         try {
             var instancesField = net.minecraftforge.network.NetworkRegistry.class.getDeclaredField("instances");
             instancesField.setAccessible(true);
             Object value = instancesField.get(null);
             if (value instanceof java.util.Map<?, ?> map) {
                 for (Object key : map.keySet()) {
-                    if (key instanceof ResourceLocation rl && !"fml".equals(rl.getNamespace())) {
+                    if (key instanceof ResourceLocation rl
+                            && remoteChannels.containsKey(rl)
+                            && !"fml".equals(rl.getNamespace())) {
                         result.add(rl);
                     }
                 }
             }
         } catch (Exception e) {
-            LogUtils.getLogger().debug("Failed to collect Forge channel names for NamespaceIndexManager", e);
+            LogUtils.getLogger().debug("Failed to collect negotiated Forge channel names for NamespaceIndexManager", e);
         }
         return result;
     }
@@ -311,6 +316,10 @@ public class NamespaceIndexManager {
             return false;
         }
         return NAMESPACE_MAP.containsKey(type.getNamespace()) && PATH_MAPS.get(NAMESPACE_MAP.getInt(type.getNamespace())).containsKey(type.getPath());
+    }
+
+    public static boolean canAggregate(ResourceLocation type) {
+        return type != null && contains(type);
     }
 
     public static int getNebIndex(ResourceLocation type) {

@@ -93,10 +93,13 @@ public class CustomPacketPrefixHelper {
     @Nullable
     public static ResourceLocation getType(FriendlyByteBuf buf) {
         int fixed = buf.readUnsignedByte() & 0xff;
-        if (fixed >>> 7 == 0) {
+        if ((fixed & 0x80) == 0) {
             return buf.readResourceLocation();
         } else {
-            if (fixed >>> 6 == 0) {
+            // Header bits:
+            // 10xxxxxx = indexed, not tight  -> remaining payload is 3 bytes
+            // 11xxxxxx = indexed, tight      -> remaining payload is 2 bytes
+            if ((fixed & 0x40) == 0) {
                 return NamespaceIndexManager.getIdentifier(buf.readUnsignedMedium(), false);
             } else {
                 return NamespaceIndexManager.getIdentifier(buf.readUnsignedShort(), true);
