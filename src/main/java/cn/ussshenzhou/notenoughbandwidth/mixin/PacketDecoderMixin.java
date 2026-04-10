@@ -2,6 +2,7 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
+import cn.ussshenzhou.notenoughbandwidth.util.EncodedTrafficStatHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
@@ -26,11 +27,13 @@ public class PacketDecoderMixin {
         if (!out.isEmpty()) {
             Object last = out.get(out.size() - 1);
             if (last instanceof Packet<?> packet) {
-                int size = input.readerIndex();
-                SimpleStatManager.inBaked(size);
+                int bakedSize = input.readerIndex();
+                int rawSize = EncodedTrafficStatHelper.estimateRawPacketSize(packet, input);
+                SimpleStatManager.inBaked(bakedSize);
+                SimpleStatManager.inRaw(rawSize);
                 Object truePacket = PacketUtil.getTruePacket(packet);
                 if (truePacket instanceof PacketAggregationPacket aggregationPacket) {
-                    aggregationPacket.setBakedSize(size);
+                    aggregationPacket.setBakedSize(bakedSize);
                 }
             }
         }

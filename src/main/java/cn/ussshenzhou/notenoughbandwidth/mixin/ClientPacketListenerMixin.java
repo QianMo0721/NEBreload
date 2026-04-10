@@ -1,6 +1,7 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import cn.ussshenzhou.notenoughbandwidth.util.CustomPayloadCodecHelper;
 import io.netty.buffer.ByteBufAllocator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
@@ -32,7 +33,6 @@ public class ClientPacketListenerMixin {
                 wrapper.writeBytes(payload);
                 copiedPacket = new ClientboundCustomPayloadPacket(wrapper);
             } finally {
-                payload.release();
                 wrapper.release();
             }
             minecraft.execute(() -> ((ClientPacketListener) (Object) this).handleCustomPayload(copiedPacket));
@@ -41,6 +41,11 @@ public class ClientPacketListenerMixin {
         }
 
         if (!PacketAggregationPacket.TYPE.equals(packet.getIdentifier())) {
+            ClientboundCustomPayloadPacket decompressed = CustomPayloadCodecHelper.tryDecompress(packet);
+            if (decompressed != null) {
+                ((ClientPacketListener) (Object) this).handleCustomPayload(decompressed);
+                ci.cancel();
+            }
             return;
         }
 

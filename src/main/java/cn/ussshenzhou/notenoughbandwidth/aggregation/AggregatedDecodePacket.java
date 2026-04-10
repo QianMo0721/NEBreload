@@ -2,7 +2,6 @@ package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
-import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import net.minecraft.network.Connection;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.FriendlyByteBuf;
@@ -14,6 +13,8 @@ import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkEvent;
 
+import javax.annotation.Nullable;
+
 /**
  * @author USS_Shenzhou
  * Holds a decoded sub-packet entry extracted from an aggregated packet bundle.
@@ -23,11 +24,20 @@ import net.minecraftforge.network.NetworkEvent;
 public class AggregatedDecodePacket {
     private static final org.slf4j.Logger LOGGER = LogUtils.getLogger();
 
+    @Nullable
     private final ResourceLocation type;
+    private final int vanillaPacketId;
     private final ByteBuf data;
 
     public AggregatedDecodePacket(ResourceLocation type, ByteBuf data) {
         this.type = type;
+        this.vanillaPacketId = -1;
+        this.data = data;
+    }
+
+    public AggregatedDecodePacket(int vanillaPacketId, ByteBuf data) {
+        this.type = null;
+        this.vanillaPacketId = vanillaPacketId;
         this.data = data;
     }
 
@@ -45,7 +55,7 @@ public class AggregatedDecodePacket {
             }
 
             PacketFlow receivingFlow = getReceivingFlow(listener);
-            Packet<?> packet = tryCreateVanillaPacket(receivingFlow);
+            Packet<?> packet = createVanillaPacket(receivingFlow);
             if (packet != null) {
                 Packet<?> finalPacket = packet;
                 context.enqueueWork(() -> {
@@ -78,28 +88,30 @@ public class AggregatedDecodePacket {
     }
 
     public Packet<?> decode(PacketFlow flow) {
-        Packet<?> packet = tryCreateVanillaPacket(flow);
+        Packet<?> packet = createVanillaPacket(flow);
         if (packet != null) {
             return packet;
         }
         return createCustomPayloadPacket(flow);
     }
 
-    private Packet<?> tryCreateVanillaPacket(PacketFlow flow) {
+    private Packet<?> createVanillaPacket(PacketFlow flow) {
+        if (vanillaPacketId < 0) {
+            return null;
+        }
         FriendlyByteBuf buf = new FriendlyByteBuf(data.duplicate());
         try {
-            Integer id = findPacketId(ConnectionProtocol.PLAY, flow, type);
-            if (id == null) {
-                return null;
-            }
-            return ConnectionProtocol.PLAY.createPacket(flow, id, buf);
+            return ConnectionProtocol.PLAY.createPacket(flow, vanillaPacketId, buf);
         } catch (Exception e) {
-            LOGGER.debug("[NEB] tryCreateVanillaPacket failed for {}: {}", type, e.getMessage());
+            LOGGER.debug("[NEB] createVanillaPacket failed for {} / {}: {}", vanillaPacketId, type, e.getMessage());
             return null;
         }
     }
 
     private Packet<?> createCustomPayloadPacket(PacketFlow flow) {
+        if (type == null) {
+            return null;
+        }
         FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.ByteBufAllocator.DEFAULT.buffer());
         try {
             buf.writeResourceLocation(type);
@@ -126,27 +138,6 @@ public class AggregatedDecodePacket {
             return PacketFlow.SERVERBOUND;
         }
         return PacketFlow.CLIENTBOUND;
-    }
-
-    private static Integer findPacketId(ConnectionProtocol protocol, PacketFlow flow, ResourceLocation typeId) {
-        try {
-            Int2ObjectMap<Class<? extends Packet<?>>> packetsByIds = protocol.getPacketsByIds(flow);
-            for (Int2ObjectMap.Entry<Class<? extends Packet<?>>> entry : packetsByIds.int2ObjectEntrySet()) {
-                Class<? extends Packet<?>> packetClass = entry.getValue();
-                ResourceLocation packetId = cn.ussshenzhou.notenoughbandwidth.util.PacketUtil.getPacketId(packetClass);
-                if (typeId.equals(packetId)) {
-                    return entry.getIntKey();
-                }
-            }
-            return null;
-        } catch (Exception e) {
-            LOGGER.debug("[NEB] findPacketId failed for {}: {}", typeId, e.getMessage());
-            return null;
-        }
-    }
-
-    private static boolean isCustomPayloadType(ResourceLocation typeId) {
-        return !"minecraft".equals(typeId.getNamespace()) || "custom_payload".equals(typeId.getPath());
     }
 
     public ByteBuf getData() {

@@ -3,11 +3,12 @@ package cn.ussshenzhou.notenoughbandwidth.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
-import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,7 +25,7 @@ public class MultiInstanceConfigHelper {
 
     private static void checkDir(File dir) {
         if (!dir.isDirectory()) {
-            dir.mkdir();
+            dir.mkdirs();
         }
     }
 
@@ -52,7 +53,7 @@ public class MultiInstanceConfigHelper {
         }
         for (File f : instances) {
             try {
-                TMultiInstanceConfig instance = GSON.fromJson(FileUtils.readFileToString(f, StandardCharsets.UTF_8), clazz);
+                TMultiInstanceConfig instance = GSON.fromJson(Files.readString(f.toPath(), StandardCharsets.UTF_8), clazz);
                 putCache(instance);
                 saveConfig(instance);
             } catch (IOException ignored) {
@@ -112,7 +113,11 @@ public class MultiInstanceConfigHelper {
         File configFile = checkChildDir(config).toPath().resolve(config.getFileName() + ".json").toFile();
         CompletableFuture.runAsync(() -> {
             try {
-                FileUtils.write(configFile, GSON.toJson(config), StandardCharsets.UTF_8);
+                Path parent = configFile.toPath().getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                Files.writeString(configFile.toPath(), GSON.toJson(config), StandardCharsets.UTF_8);
             } catch (IOException ignored) {
                 LogUtils.getLogger().error("Failed to save config {}. Things may not work well.", config.getClass());
             }

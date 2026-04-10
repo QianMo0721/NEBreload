@@ -7,6 +7,7 @@ import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import com.mojang.logging.LogUtils;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import net.minecraft.network.Connection;
 import net.minecraft.network.FriendlyByteBuf;
@@ -24,15 +25,16 @@ import java.util.function.Supplier;
  *
  * Wire format (same as NeoForge version):
  * <pre>
+ * +-------+------+-------+-------+------+-------+-------+------+...
+ * | B     | (S)  |  V0   |  h0   |  s0  |  d0   |  V1   |  h1  |...
  * +-------+------+-------+------+-------+------+-------+...
- * | B     | (S)  |  p0   |  s0  |  d0   |  p1  |  s1   |...
- * +-------+------+-------+------+-------+------+-------+...
- *                |---packet 0---+       |---packet 1---+
+ *                |----packet 0----+      |----packet 1----+
  *                |---------compressed-----------+
  *
  * B = boolean, whether the payload is compressed
  * S = varint, raw (uncompressed) size – only present when B=true
- * p = prefix written by CustomPacketPrefixHelper (type identifier)
+ * V = boolean, whether this sub-packet is vanilla play packet
+ * h = if V=true then varint packet id; otherwise indexed custom payload prefix
  * s = varint, byte length of this sub-packet's data
  * d = raw packet data
  * </pre>
@@ -64,7 +66,7 @@ public class PacketAggregationPacket {
             int rawSize = rawBuf.readableBytes();
             SimpleStatManager.outRaw(rawSize);
 
-            boolean compress = rawSize >= 32;
+            boolean compress = rawSize >= 32 && ZstdHelper.isAvailable();
             // B
             buffer.writeBoolean(compress);
             if (compress) {
@@ -107,8 +109,12 @@ public class PacketAggregationPacket {
         var dataBuf = new FriendlyByteBuf(ByteBufAllocator.DEFAULT.buffer());
         try {
             p.encode(dataBuf);
-            // p – type prefix
-            CustomPacketPrefixHelper.get().index(p.type).save(raw);
+            raw.writeBoolean(p.isVanillaPacket());
+            if (p.isVanillaPacket()) {
+                raw.writeVarInt(p.getVanillaPacketId());
+            } else {
+                CustomPacketPrefixHelper.get().index(p.getType()).save(raw);
+            }
             // s – data length
             raw.writeVarInt(dataBuf.readableBytes());
             // d – data bytes
@@ -188,6 +194,9 @@ public class PacketAggregationPacket {
         boolean compressed = data.readBoolean();
         FriendlyByteBuf raw;
         if (compressed) {
+            if (!ZstdHelper.isAvailable()) {
+                throw new IllegalStateException("Received compressed NEB packet but zstd-jni is unavailable on this runtime");
+            }
             int rawSize = data.readVarInt();
             raw = new FriendlyByteBuf(ZstdHelper.decompress(null, data.retainedDuplicate(), rawSize));
         } else {
@@ -208,13 +217,23 @@ public class PacketAggregationPacket {
     }
 
     private void deAggregatePacket(FriendlyByteBuf buf, ArrayList<AggregatedDecodePacket> out) {
-        // p – type prefix
-        ResourceLocation type = CustomPacketPrefixHelper.getType(buf);
+        boolean vanilla = buf.readBoolean();
+        int vanillaPacketId = -1;
+        ResourceLocation type = null;
+        if (vanilla) {
+            vanillaPacketId = buf.readVarInt();
+        } else {
+            type = CustomPacketPrefixHelper.getType(buf);
+        }
         // s – data size
         int size = buf.readVarInt();
         // d – data slice (retained so each AggregatedDecodePacket owns its ref)
         var slice = new FriendlyByteBuf(buf.readRetainedSlice(size));
-        out.add(new AggregatedDecodePacket(type, slice));
+        if (vanilla) {
+            out.add(new AggregatedDecodePacket(vanillaPacketId, slice));
+        } else {
+            out.add(new AggregatedDecodePacket(type, slice));
+        }
     }
 
     public int getBakedSize() {
@@ -223,5 +242,47 @@ public class PacketAggregationPacket {
 
     public void setBakedSize(int bakedSize) {
         this.bakedSize = bakedSize;
+    }
+
+    public static int estimateRawSizeFromEncodedWrapper(ByteBuf encodedPacket) {
+        ParsedWrapperStats stats = parseEncodedWrapper(encodedPacket);
+        if (stats == null) {
+            return encodedPacket.writerIndex();
+        }
+        return stats.wrapperOverhead() + stats.rawPayloadSize();
+    }
+
+    public static int estimateWrapperOverheadFromEncodedWrapper(ByteBuf encodedPacket) {
+        ParsedWrapperStats stats = parseEncodedWrapper(encodedPacket);
+        if (stats == null) {
+            return 0;
+        }
+        return stats.wrapperOverhead();
+    }
+
+    private static ParsedWrapperStats parseEncodedWrapper(ByteBuf encodedPacket) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(encodedPacket.duplicate());
+        buf.readerIndex(0);
+        try {
+            int totalSize = buf.writerIndex();
+            buf.readVarInt();
+            ResourceLocation channel = buf.readResourceLocation();
+            if (!TYPE.equals(channel)) {
+                return null;
+            }
+            boolean compressed = buf.readBoolean();
+            if (compressed) {
+                int rawPayloadSize = buf.readVarInt();
+                int compressedPayloadSize = buf.readableBytes();
+                return new ParsedWrapperStats(rawPayloadSize, totalSize - compressedPayloadSize);
+            }
+            int rawPayloadSize = buf.readableBytes();
+            return new ParsedWrapperStats(rawPayloadSize, totalSize - rawPayloadSize);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private record ParsedWrapperStats(int rawPayloadSize, int wrapperOverhead) {
     }
 }

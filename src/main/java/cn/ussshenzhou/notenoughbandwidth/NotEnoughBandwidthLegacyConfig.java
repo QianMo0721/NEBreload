@@ -21,20 +21,20 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     public String commentCompatibleMode = "兼容模式开启后，会额外跳过黑名单中的数据包聚合，适合在出现进服异常、回弹、丢包表现时排查兼容性问题。";
 
     @SerializedName(value = "兼容模式", alternate = {"compatibleMode"})
-    public boolean compatibleMode = false;
+    public boolean compatibleMode = true;
 
     @SerializedName("说明-兼容模式黑名单")
     public String commentBlackList = "仅在兼容模式开启时生效。列表内容为需要强制跳过聚合的数据包类型标识。";
 
     @SerializedName(value = "兼容模式黑名单", alternate = {"blackList"})
     public HashSet<String> blackList = new HashSet<>() {{
-        add("minecraft:command_suggestion");
-        add("minecraft:command_suggestions");
-        add("minecraft:commands");
-        add("minecraft:chat_command");
-        add("minecraft:chat_command_signed");
-        add("minecraft:player_info_update");
-        add("minecraft:player_info_remove");
+//        add("minecraft:command_suggestion");
+//        add("minecraft:command_suggestions");
+//        add("minecraft:commands");
+//        add("minecraft:chat_command");
+//        add("minecraft:chat_command_signed");
+//        add("minecraft:player_info_update");
+//        add("minecraft:player_info_remove");
     }};
 
     @SerializedName("说明-调试日志")
@@ -93,34 +93,60 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:keep_alive");
         add("minecraft:ping");
         add("minecraft:pong");
+        add("minecraft:register");
+        add("minecraft:unregister");
         add("minecraft:resource_pack");
         add("minecraft:client_information");
         add("minecraft:update_enabled_features");
-        // Chunk streaming and chunk cache control packets are too timing-sensitive
-        // in the current Forge 1.20.1 port. Let vanilla send them directly.
-        add("minecraft:level_chunk_with_light");
-        add("minecraft:chunks_biomes");
-        add("minecraft:light_update");
+        // Chunk cache control packets remain timing-sensitive in the current
+        // Forge 1.20.1 port, but the bulk chunk payload packets need to stay
+        // aggregatable, otherwise compression ratio collapses far below the
+        // original mod because most of the bandwidth is no longer eligible.
         add("minecraft:set_chunk_cache_center");
         add("minecraft:set_chunk_cache_radius");
-        add("minecraft:forget_level_chunk");
-        add("minecraft:section_blocks_update");
-        // Player movement / teleport synchronization is also timing-sensitive on Forge.
-        // If these packets are reordered or buffered, the server-side position can lag
-        // behind the client and cause rollback after reconnect.
-        add("minecraft:move_player_pos");
-        add("minecraft:move_player_pos_rot");
-        add("minecraft:move_player_rot");
-        add("minecraft:move_player_status_only");
-        add("minecraft:player_position");
-        add("minecraft:player_rotation");
-        add("minecraft:accept_teleportation");
+        // 按移植前项目实现，这些移动/同步包默认也应参与聚合；
         // Forge internal channel packets – skip aggregation
         add("forge:tier_sorting");
         add("forge:registry_data");
         add("forge:spawn_type");
         add("forge:register");
         add("forge:unregister");
+        // FTB Quests 任务书与队伍同步链路对自定义 payload 的标识和顺序非常敏感，
+        // 必须始终直通，不能依赖兼容模式黑名单，否则已有配置文件会让这些排除项失效。
+        add("ftbquests:sync_quests");
+        add("ftbquests:sync_team_data");
+        add("ftbquests:update_task_progress");
+        add("ftbquests:claim_reward_response");
+        add("ftbquests:sync_editing_mode");
+        add("ftbquests:create_other_team_data");
+        add("ftbquests:display_completion_toast");
+        add("ftbquests:display_reward_toast");
+        add("ftbquests:display_item_reward_toast");
+        add("ftbquests:toggle_pinned_response");
+        add("ftbquests:toggle_chapter_pinned_response");
+        add("ftbquests:update_team_data");
+        add("ftbquests:object_started");
+        add("ftbquests:object_completed");
+        add("ftbquests:object_started_reset");
+        add("ftbquests:object_completed_reset");
+        add("ftbquests:sync_lock");
+        add("ftbquests:reset_reward");
+        add("ftbquests:team_data_changed");
+        add("ftbquests:task_screen_config_req");
+        add("ftbquests:create_object_response");
+        add("ftbquests:delete_object_response");
+        add("ftbquests:edit_object_response");
+        add("ftbquests:move_chapter_response");
+        add("ftbquests:move_quest_response");
+        add("ftbquests:change_chapter_group_response");
+        add("ftbquests:move_chapter_group_response");
+        add("ftbquests:sync_reward_blocking");
+        add("ftbquests:sync_structures_response");
+        add("ftbquests:sync_editor_permission");
+        add("ftbquests:open_quest_book");
+        add("ftbquests:clear_display_cache");
+        add("ftbquests:reorder_item_response");
+        add("ftbquests:clear_repeat_cooldown");
         add("minecraft:custom_payload");
     }};
 
@@ -130,6 +156,9 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     public static boolean skipType(String type) {
         var cfg = get();
+        if (type.startsWith("ftbquests:") || type.startsWith("ftbteams:") || type.startsWith("ftblibrary:")) {
+            return true;
+        }
         return COMMON_BLOCK_LIST.contains(type) || (cfg.compatibleMode && cfg.blackList.contains(type));
     }
 

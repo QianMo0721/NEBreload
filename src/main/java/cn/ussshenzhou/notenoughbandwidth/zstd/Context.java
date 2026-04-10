@@ -25,14 +25,25 @@ public class Context implements Closeable {
     }
 
     public ByteBuffer compress(ByteBuffer src) {
-        return compressCtx.compress(src);
+        return compressCtx.compress(ensureDirect(src));
     }
 
     public ByteBuffer decompress(ByteBuffer src, int originalSize) {
         ByteBuffer dst = ByteBuffer.allocateDirect(originalSize);
-        decompressCtx.decompress(dst, src);
+        decompressCtx.decompress(dst, ensureDirect(src));
         dst.flip();
         return dst;
+    }
+
+    private static ByteBuffer ensureDirect(ByteBuffer src) {
+        ByteBuffer slice = src.slice();
+        if (slice.isDirect()) {
+            return slice;
+        }
+        ByteBuffer direct = ByteBuffer.allocateDirect(slice.remaining());
+        direct.put(slice);
+        direct.flip();
+        return direct;
     }
 
     @Override

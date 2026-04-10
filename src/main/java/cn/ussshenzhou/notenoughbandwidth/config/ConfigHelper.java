@@ -3,11 +3,11 @@ package cn.ussshenzhou.notenoughbandwidth.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
-import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.CompletableFuture;
@@ -21,11 +21,11 @@ public class ConfigHelper {
     private static final File CONFIG_DIR = Paths.get("config").toFile();
     private static final ConcurrentHashMap<Class<? extends TConfig>, TConfig> CACHE = new ConcurrentHashMap<>();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
-    private static final File UNIVERSAL_CONFIG_DIR = FileUtils.getUserDirectory().toPath().resolve("MinecraftT88Config").toFile();
+    private static final File UNIVERSAL_CONFIG_DIR = Path.of(System.getProperty("user.home"), "MinecraftT88Config").toFile();
 
     private static void checkDir(File dir) {
         if (!dir.isDirectory()) {
-            dir.mkdir();
+            dir.mkdirs();
         }
     }
 
@@ -63,7 +63,7 @@ public class ConfigHelper {
         Class<? extends TConfig> configClass = newInstance.getClass();
         if (configFile.exists()) {
             try {
-                String json = FileUtils.readFileToString(configFile, StandardCharsets.UTF_8);
+                String json = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
                 TConfig loaded = GSON.fromJson(json, configClass);
                 CACHE.put(configClass, loaded);
             } catch (IOException e) {
@@ -79,8 +79,12 @@ public class ConfigHelper {
     protected static void saveConfigInternal(TConfig config, File configFile) {
         CompletableFuture.runAsync(() -> {
             try {
+                Path parent = configFile.toPath().getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
                 String json = GSON.toJson(config);
-                FileUtils.writeStringToFile(configFile, json, StandardCharsets.UTF_8);
+                Files.writeString(configFile.toPath(), json, StandardCharsets.UTF_8);
             } catch (IOException e) {
                 LogUtils.getLogger().error("Failed to write config file: " + configFile, e);
             }

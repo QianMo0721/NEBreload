@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutionException;
  * @author USS_Shenzhou
  */
 public class ZstdHelper {
+    private static final boolean ZSTD_AVAILABLE = detectAvailability();
 
     private static final Cache<Connection, Context> ZSTD_CONTEXT_CACHE = CacheBuilder.newBuilder()
             .weakKeys()
@@ -24,11 +25,28 @@ public class ZstdHelper {
             })
             .build();
 
+    private static boolean detectAvailability() {
+        try {
+            Class.forName("com.github.luben.zstd.ZstdCompressCtx");
+            Class.forName("com.github.luben.zstd.ZstdDecompressCtx");
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean isAvailable() {
+        return ZSTD_AVAILABLE;
+    }
+
     public static ByteBuf compress(Connection connection, ByteBuf raw) {
         return Unpooled.wrappedBuffer(get(connection).compress(raw.nioBuffer()));
     }
 
     public static ByteBuf decompress(Connection connection, ByteBuf compressed, int originalSize) {
+        if (connection == null) {
+            return decompressStateless(compressed, originalSize);
+        }
         if (compressed.isDirect()) {
             return Unpooled.wrappedBuffer(get(connection).decompress(compressed.nioBuffer(), originalSize));
         } else {
@@ -37,6 +55,24 @@ public class ZstdHelper {
             var decompressed = Unpooled.wrappedBuffer(get(connection).decompress(directBuf.nioBuffer(), originalSize));
             directBuf.release();
             return decompressed;
+        }
+    }
+
+    private static ByteBuf decompressStateless(ByteBuf compressed, int originalSize) {
+        try (Context ctx = new Context()) {
+            if (compressed.isDirect()) {
+                return Unpooled.wrappedBuffer(ctx.decompress(compressed.nioBuffer(), originalSize));
+            }
+
+            var directBuf = Unpooled.directBuffer(compressed.readableBytes());
+            try {
+                compressed.getBytes(compressed.readerIndex(), directBuf);
+                return Unpooled.wrappedBuffer(ctx.decompress(directBuf.nioBuffer(), originalSize));
+            } finally {
+                directBuf.release();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("[NEB] Zstd decompress failed", e);
         }
     }
 
