@@ -129,7 +129,7 @@ public abstract class ChunkMapMixin {
      * keep delayed chunk caching semantics consistent when server view distance changes.
      */
     @Overwrite
-    protected void setViewDistance(int viewDistance) {
+    public void setViewDistance(int viewDistance) {
         int clamped = Mth.clamp(viewDistance, 2, 32);
         if (clamped == this.viewDistance) {
             return;
