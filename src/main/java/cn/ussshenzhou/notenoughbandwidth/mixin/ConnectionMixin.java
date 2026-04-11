@@ -172,12 +172,15 @@ public abstract class ConnectionMixin {
     }
 
     @Unique
-    @SuppressWarnings("unchecked")
     private static boolean shouldBypassBundlePacket(Packet<?> packet) {
-        if (!(packet instanceof net.minecraft.network.protocol.BundlePacket<?> bundlePacket)) {
+        if (!isBundlePacket(packet)) {
             return false;
         }
-        for (Packet<?> subPacket : (Iterable<Packet<?>>) bundlePacket.subPackets()) {
+        Iterable<Packet<?>> subPackets = getBundleSubPackets(packet);
+        if (subPackets == null) {
+            return false;
+        }
+        for (Packet<?> subPacket : subPackets) {
             if (isAlwaysBypassPacketType(subPacket)) {
                 return true;
             }
@@ -192,7 +195,28 @@ public abstract class ConnectionMixin {
                 || packet instanceof net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket
                 || packet instanceof net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket
                 || packet instanceof net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket
-                || packet instanceof net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
+                || packet instanceof net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket
+                // Forge 1.20.1 still transports NEB aggregation through vanilla
+                // custom-payload packets, which are hard-limited to 1 MiB. Recipe
+                // synchronization can easily reach tens of megabytes on large
+                // modpacks, so trying to aggregate/compress it through that path
+                // only triggers the oversized fallback warning and never succeeds.
+                || packet instanceof net.minecraft.network.protocol.game.ClientboundUpdateRecipesPacket;
+    }
+
+    @Unique
+    @SuppressWarnings("unchecked")
+    @Nullable
+    private static Iterable<Packet<?>> getBundleSubPackets(Packet<?> packet) {
+        try {
+            var method = packet.getClass().getMethod("subPackets");
+            Object value = method.invoke(packet);
+            if (value instanceof Iterable<?> iterable) {
+                return (Iterable<Packet<?>>) iterable;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /**
@@ -202,9 +226,10 @@ public abstract class ConnectionMixin {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void deBundlePacket(Packet<?> bundle, @Nullable PacketSendListener listener) {
         try {
-            // BundlePacket has subPackets() method returning Iterable<Packet<?>>
-            var method = bundle.getClass().getMethod("subPackets");
-            Iterable<Packet<?>> subPackets = (Iterable<Packet<?>>) method.invoke(bundle);
+            Iterable<Packet<?>> subPackets = getBundleSubPackets(bundle);
+            if (subPackets == null) {
+                throw new IllegalStateException("Bundle packet does not expose subPackets()");
+            }
             for (Packet<?> p : subPackets) {
                 this.send(p, listener);
             }
