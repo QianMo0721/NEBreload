@@ -98,12 +98,6 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:resource_pack");
         add("minecraft:client_information");
         add("minecraft:update_enabled_features");
-        // Large modpacks can inflate recipe sync to tens of MiB. In the current
-        // Forge 1.20.1 port, aggregated transport still rides on vanilla custom
-        // payload packets, whose payload size is capped at 1 MiB, so recipe sync
-        // must bypass aggregation proactively instead of hitting the oversized
-        // fallback path at runtime.
-        add("minecraft:update_recipes");
         // Chunk cache control packets remain timing-sensitive in the current
         // Forge 1.20.1 port, but the bulk chunk payload packets need to stay
         // aggregatable, otherwise compression ratio collapses far below the

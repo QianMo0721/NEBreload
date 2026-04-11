@@ -100,6 +100,13 @@ public class CustomPacketPayloadMixin {
     private static void writePayloadBody(FriendlyByteBuf targetBuf, ResourceLocation id, FriendlyByteBuf payload) {
         byte[] raw = new byte[payload.readableBytes()];
         payload.getBytes(payload.readerIndex(), raw);
+        // Connection 层已经可能把 custom payload 包体压成了
+        // NEBZSTD1 + rawSize + compressedData。这里如果再压一次，接收侧只解一层后
+        // 仍会残留魔数头，像 minecraft:register 这种会直接把残留字节当频道名解析。
+        if (isAlreadyCompressed(raw)) {
+            targetBuf.writeBytes(raw);
+            return;
+        }
         if (!shouldCompress(id) || raw.length < MIN_COMPRESS_SIZE) {
             targetBuf.writeBytes(raw);
             return;
@@ -121,6 +128,18 @@ public class CustomPacketPayloadMixin {
         return id != null
                 && ZstdHelper.isAvailable()
                 && !PacketAggregationPacket.TYPE.equals(id);
+    }
+
+    @Unique
+    private static boolean isAlreadyCompressed(byte[] raw) {
+        if (raw.length < Long.BYTES + 1) {
+            return false;
+        }
+        long magic = 0L;
+        for (int i = 0; i < Long.BYTES; i++) {
+            magic = (magic << 8) | (raw[i] & 0xFFL);
+        }
+        return magic == EncodedTrafficStatHelper.NEB_CUSTOM_PAYLOAD_MAGIC;
     }
 
     @Unique
