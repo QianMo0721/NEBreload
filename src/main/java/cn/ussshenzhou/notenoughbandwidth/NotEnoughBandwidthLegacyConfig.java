@@ -49,6 +49,12 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     @SerializedName(value = "上下文等级", alternate = {"contextLevel"})
     public int contextLevel = 23;
 
+    @SerializedName("说明-zstd压缩等级")
+    public String commentZstdCompressionLevel = "zstd 算法压缩等级。数值越高通常压缩率越高、CPU 开销也越大。程序内部会自动限制在 -5 到 22 之间。";
+
+    @SerializedName(value = "zstd压缩等级", alternate = {"zstdCompressionLevel", "compressionLevel"})
+    public int zstdCompressionLevel = 3;
+
     /**
      * 延迟区块缓存开关。默认开启，以保持与原项目一致的“扩展视距 +
      * 区块缓存”能力；如需排查兼容性，可手动关闭。
@@ -187,5 +193,9 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     public int getContextLevel() {
         return Mth.clamp(contextLevel, 21, 25);
+    }
+
+    public int getZstdCompressionLevel() {
+        return Mth.clamp(zstdCompressionLevel, -5, 22);
     }
 }

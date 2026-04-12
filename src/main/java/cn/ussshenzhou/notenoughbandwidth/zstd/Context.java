@@ -16,7 +16,7 @@ public class Context implements Closeable {
 
     public Context() {
         compressCtx = new ZstdCompressCtx();
-        compressCtx.setLevel(3);
+        compressCtx.setLevel(NotEnoughBandwidthLegacyConfig.get().getZstdCompressionLevel());
         compressCtx.setContentSize(false);
         compressCtx.setMagicless(true);
         compressCtx.setWindowLog(NotEnoughBandwidthLegacyConfig.get().getContextLevel());
