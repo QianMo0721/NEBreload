@@ -1,5 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.util;
 
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import io.netty.buffer.ByteBuf;
@@ -58,6 +59,9 @@ public final class CustomPayloadCodecHelper {
 
     private static boolean shouldCompress(ResourceLocation identifier, FriendlyByteBuf payload) {
         if (identifier == null || !ZstdHelper.isAvailable() || PacketAggregationPacket.TYPE.equals(identifier)) {
+            return false;
+        }
+        if (NotEnoughBandwidthLegacyConfig.skipType(identifier.toString())) {
             return false;
         }
         if (payload.readableBytes() < MIN_COMPRESS_SIZE) {

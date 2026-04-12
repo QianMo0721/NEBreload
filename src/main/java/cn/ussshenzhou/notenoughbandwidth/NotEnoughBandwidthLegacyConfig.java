@@ -98,6 +98,10 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:resource_pack");
         add("minecraft:client_information");
         add("minecraft:update_enabled_features");
+        // Forge play channel 承载实体生成与容器打开等框架级 payload，格式由 Forge
+        // 自己解释，不能再叠加 NEB 的 transparent custom-payload 压缩，否则会在
+        // 对端网络层先于 Minecraft 逻辑解析时读到 NEBZSTD1 魔数。
+        add("fml:play");
         // Chunk cache control packets remain timing-sensitive in the current
         // Forge 1.20.1 port, but the bulk chunk payload packets need to stay
         // aggregatable, otherwise compression ratio collapses far below the
