@@ -1,0 +1,116 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:3.+'
+        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'eclipse'
+apply plugin: 'maven-publish'
+apply plugin: 'java'
+apply plugin: 'org.spongepowered.mixin'
+
+version = '1.0.10-forge+1.12.2+23.5.2860'
+group = 'cn.ussshenzhou.notenoughbandwidth'
+archivesBaseName = 'nebl'
+
+sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8'
+
+configurations {
+    embed
+    implementation.extendsFrom(embed)
+}
+
+minecraft {
+    mappings channel: 'snapshot', version: '20171003-1.12'
+
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
+            property 'forge.logging.console.level', 'debug'
+        }
+
+        server {
+            property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
+            property 'forge.logging.console.level', 'debug'
+        }
+    }
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.12.2-14.23.5.2860'
+    embed 'org.spongepowered:mixin:0.8.5'
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    embed 'com.github.luben:zstd-jni:1.5.5-5'
+}
+
+mixin {
+    add sourceSets.main, 'nebl.refmap.json'
+    config 'nebl.mixins.json'
+}
+
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.embed.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    exclude 'META-INF/versions/**'
+    exclude 'META-INF/INDEX.LIST'
+    exclude 'META-INF/services/cpw.mods.modlauncher.api.ITransformationService'
+    exclude 'META-INF/services/cpw.mods.modlauncher.serviceapi.ILaunchPluginService'
+    exclude 'org/spongepowered/asm/service/modlauncher/**'
+    exclude 'org/spongepowered/asm/launch/MixinLaunchPlugin.class'
+    exclude 'org/spongepowered/asm/launch/MixinTransformationService.class'
+    exclude 'org/spongepowered/asm/launch/MixinTransformationServiceAbstract.class'
+    exclude 'org/spongepowered/asm/launch/MixinTransformationServiceLegacy.class'
+    exclude 'org/spongepowered/asm/launch/platform/container/ContainerHandleModLauncher.class'
+    exclude 'org/spongepowered/asm/launch/platform/container/ContainerHandleModLauncher$Resource.class'
+    exclude 'org/spongepowered/asm/launch/platform/container/ContainerHandleModLauncherEx.class'
+    exclude 'org/spongepowered/asm/launch/platform/container/ContainerHandleModLauncherEx$SecureJarResource.class'
+    exclude 'org/spongepowered/asm/launch/platform/MixinPlatformAgentMinecraftForge.class'
+    exclude 'module-info.class'
+    manifest {
+        attributes([
+            "Specification-Title": "nebl",
+            "Specification-Vendor": "USS_Shenzhou",
+            "Specification-Version": "1",
+            "Implementation-Title": project.name,
+            "Implementation-Version": "${version}",
+            "Implementation-Vendor" :"USS_Shenzhou",
+            "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+            "TweakClass": "org.spongepowered.asm.launch.MixinTweaker",
+            "TweakOrder": 0,
+            "MixinConfigs": "nebl.mixins.json",
+            "FMLCorePluginContainsFMLMod": true,
+            "FMLCorePlugin": "cn.ussshenzhou.notenoughbandwidth.mixin.MixinLoader",
+            "ForceLoadAsMod": true
+        ])
+    }
+}
+
+jar.finalizedBy('reobfJar')
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifact jar
+        }
+    }
+    repositories {
+        maven {
+            url "file:///${project.projectDir}/mcmodsrepo"
+        }
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
