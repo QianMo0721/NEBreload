@@ -2,7 +2,6 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
-import cn.ussshenzhou.notenoughbandwidth.util.CustomPayloadCodecHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.channel.local.LocalAddress;
 import net.minecraft.network.Connection;
@@ -10,8 +9,6 @@ import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.PacketListener;
 import net.minecraft.network.PacketSendListener;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -27,9 +24,6 @@ import java.net.SocketAddress;
  */
 @Mixin(value = Connection.class, priority = 1)
 public abstract class ConnectionMixin {
-    @Unique
-    private static final ThreadLocal<Integer> NEB_CUSTOM_PAYLOAD_RESEND_DEPTH = ThreadLocal.withInitial(() -> 0);
-
     @Shadow
     @Nullable
     private volatile PacketListener packetListener;
@@ -68,27 +62,6 @@ public abstract class ConnectionMixin {
             return;
         }
         if (currentProtocol != ConnectionProtocol.PLAY) {
-            return;
-        }
-        // Mod custom channels such as Architectury / FTB Quests are extremely
-        // sensitive to payload byte layout and ordering. They must stay on the
-        // original channel path, but we may still transparently zstd-compress
-        // the payload body itself.
-        if (isCustomPayloadPacket(packet)) {
-            if (NEB_CUSTOM_PAYLOAD_RESEND_DEPTH.get() > 0) {
-                return;
-            }
-            AggregationManager.flushConnection(connection);
-            Packet<?> compressed = tryCompressCustomPayload(packet);
-            if (compressed != null) {
-                pushCustomPayloadResendDepth();
-                try {
-                    this.send(compressed, listener);
-                } finally {
-                    popCustomPayloadResendDepth();
-                }
-                ci.cancel();
-            }
             return;
         }
         if (shouldBypassBundlePacket(packet)) {
@@ -132,38 +105,6 @@ public abstract class ConnectionMixin {
     @Unique
     private static boolean isPlayPacket(Packet<?> packet) {
         return ConnectionProtocol.getProtocolForPacket(packet) == ConnectionProtocol.PLAY;
-    }
-
-    @Unique
-    private static boolean isCustomPayloadPacket(Packet<?> packet) {
-        return packet instanceof ClientboundCustomPayloadPacket
-                || packet instanceof ServerboundCustomPayloadPacket;
-    }
-
-    @Unique
-    private static Packet<?> tryCompressCustomPayload(Packet<?> packet) {
-        if (packet instanceof ClientboundCustomPayloadPacket clientbound) {
-            return CustomPayloadCodecHelper.tryCompress(clientbound);
-        }
-        if (packet instanceof ServerboundCustomPayloadPacket serverbound) {
-            return CustomPayloadCodecHelper.tryCompress(serverbound);
-        }
-        return null;
-    }
-
-    @Unique
-    private static void pushCustomPayloadResendDepth() {
-        NEB_CUSTOM_PAYLOAD_RESEND_DEPTH.set(NEB_CUSTOM_PAYLOAD_RESEND_DEPTH.get() + 1);
-    }
-
-    @Unique
-    private static void popCustomPayloadResendDepth() {
-        int depth = NEB_CUSTOM_PAYLOAD_RESEND_DEPTH.get() - 1;
-        if (depth <= 0) {
-            NEB_CUSTOM_PAYLOAD_RESEND_DEPTH.remove();
-        } else {
-            NEB_CUSTOM_PAYLOAD_RESEND_DEPTH.set(depth);
-        }
     }
 
     @Unique

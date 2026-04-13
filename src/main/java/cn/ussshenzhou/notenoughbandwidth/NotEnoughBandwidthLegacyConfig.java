@@ -157,7 +157,6 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("ftbquests:clear_display_cache");
         add("ftbquests:reorder_item_response");
         add("ftbquests:clear_repeat_cooldown");
-        add("minecraft:custom_payload");
     }};
 
     public static NotEnoughBandwidthLegacyConfig get() {
