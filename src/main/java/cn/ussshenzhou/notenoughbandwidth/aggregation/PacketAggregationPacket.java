@@ -5,6 +5,7 @@ import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.config.ConfigHelper;
 import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
+import cn.ussshenzhou.notenoughbandwidth.util.RawTrafficHelper;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
@@ -113,7 +114,11 @@ public class PacketAggregationPacket {
             if (p.isVanillaPacket()) {
                 raw.writeVarInt(p.getVanillaPacketId());
             } else {
-                CustomPacketPrefixHelper.get().index(p.getType()).save(raw);
+                var prefixHelper = CustomPacketPrefixHelper.get().index(p.getType());
+                prefixHelper.save(raw);
+                if (prefixHelper.isIndexed() && p.getType() != null) {
+                    SimpleStatManager.outRaw(RawTrafficHelper.getWriteUtfCost(p.getType()));
+                }
             }
             // s – data length
             raw.writeVarInt(dataBuf.readableBytes());
@@ -223,7 +228,11 @@ public class PacketAggregationPacket {
         if (vanilla) {
             vanillaPacketId = buf.readVarInt();
         } else {
-            type = CustomPacketPrefixHelper.getType(buf);
+            var decodedType = CustomPacketPrefixHelper.read(buf);
+            type = decodedType.type();
+            if (decodedType.indexed() && type != null) {
+                SimpleStatManager.inRaw(RawTrafficHelper.getWriteUtfCost(type));
+            }
         }
         // s – data size
         int size = buf.readVarInt();

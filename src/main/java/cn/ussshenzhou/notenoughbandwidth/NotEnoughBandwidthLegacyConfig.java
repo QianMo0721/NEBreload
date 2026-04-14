@@ -84,6 +84,12 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     @SerializedName(value = "区块缓存超时秒数", alternate = {"dccTimeout"})
     public int dccTimeout = 60;
 
+    @SerializedName("说明-区块缓存Raw估算系数")
+    public String commentChunkCacheRawSizeMultiplier = "区块缓存命中时，补记到 Raw 统计中的区块主体大小估算系数。1.0 表示按主体 buffer 原样计入，可按需要手动调整。";
+
+    @SerializedName(value = "区块缓存Raw估算系数", alternate = {"chunkCacheRawSizeMultiplier"})
+    public double chunkCacheRawSizeMultiplier = 1.0D;
+
     @Expose(serialize = false, deserialize = false)
     public static final HashSet<String> COMMON_BLOCK_LIST = new HashSet<>() {{
         add("minecraft:finish_configuration");
@@ -181,6 +187,10 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     public int getDccTimeoutSafeSeconds() {
         return Math.max(0, dccTimeout);
+    }
+
+    public double getChunkCacheRawSizeMultiplierSafe() {
+        return Math.max(0.0D, chunkCacheRawSizeMultiplier);
     }
 
     public boolean isDelayedChunkCachingUsable() {

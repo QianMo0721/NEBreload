@@ -65,8 +65,12 @@ public class ConfigHelper {
             try {
                 String json = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
                 TConfig loaded = GSON.fromJson(json, configClass);
+                if (loaded == null) {
+                    loaded = newInstance;
+                }
                 CACHE.put(configClass, loaded);
-            } catch (IOException e) {
+                saveConfigInternal(loaded, configFile);
+            } catch (Exception e) {
                 LogUtils.getLogger().error("Failed to read config file: " + configFile, e);
                 CACHE.put(configClass, newInstance);
             }

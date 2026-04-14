@@ -54,6 +54,7 @@ public class CustomPacketPrefixHelper {
 
     private int prefix = 0;
     private ResourceLocation type = null;
+    private boolean indexed = false;
 
     private CustomPacketPrefixHelper() {
     }
@@ -62,6 +63,7 @@ public class CustomPacketPrefixHelper {
         var instance = INSTANCES.get();
         instance.prefix = 0;
         instance.type = null;
+        instance.indexed = false;
         return instance;
     }
 
@@ -73,7 +75,12 @@ public class CustomPacketPrefixHelper {
         }
         this.type = type;
         prefix |= index;
+        indexed = true;
         return this;
+    }
+
+    public boolean isIndexed() {
+        return indexed;
     }
 
     public void save(FriendlyByteBuf buf) {
@@ -92,18 +99,25 @@ public class CustomPacketPrefixHelper {
 
     @Nullable
     public static ResourceLocation getType(FriendlyByteBuf buf) {
+        return read(buf).type();
+    }
+
+    public static DecodedTypeInfo read(FriendlyByteBuf buf) {
         int fixed = buf.readUnsignedByte() & 0xff;
         if ((fixed & 0x80) == 0) {
-            return buf.readResourceLocation();
+            return new DecodedTypeInfo(buf.readResourceLocation(), false);
         } else {
             // Header bits:
             // 10xxxxxx = indexed, not tight  -> remaining payload is 3 bytes
             // 11xxxxxx = indexed, tight      -> remaining payload is 2 bytes
             if ((fixed & 0x40) == 0) {
-                return NamespaceIndexManager.getIdentifier(buf.readUnsignedMedium(), false);
+                return new DecodedTypeInfo(NamespaceIndexManager.getIdentifier(buf.readUnsignedMedium(), false), true);
             } else {
-                return NamespaceIndexManager.getIdentifier(buf.readUnsignedShort(), true);
+                return new DecodedTypeInfo(NamespaceIndexManager.getIdentifier(buf.readUnsignedShort(), true), true);
             }
         }
+    }
+
+    public record DecodedTypeInfo(@Nullable ResourceLocation type, boolean indexed) {
     }
 }

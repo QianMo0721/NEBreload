@@ -1,6 +1,8 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.chunk.CachedChunkTrackingView;
+import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
+import cn.ussshenzhou.notenoughbandwidth.util.RawTrafficHelper;
 import net.minecraft.util.Mth;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.core.SectionPos;
@@ -233,8 +235,13 @@ public abstract class ChunkMapMixin {
         }
 
         if (!wasInRange && isInRange) {
-            if (CachedChunkTrackingView.onChunkEnter(player, pos)) {
+            int cachedChunkBodySize = CachedChunkTrackingView.onChunkEnter(player, pos);
+            if (cachedChunkBodySize >= 0) {
                 nebRemoveCacheTicket(pos);
+                int estimatedRawSize = RawTrafficHelper.estimateCachedChunkRawSize(cachedChunkBodySize);
+                if (estimatedRawSize > 0) {
+                    SimpleStatManager.outRaw(estimatedRawSize);
+                }
                 return;
             }
             nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, false, true);
@@ -242,7 +249,7 @@ public abstract class ChunkMapMixin {
         }
 
         if (wasInRange && !isInRange) {
-            if (CachedChunkTrackingView.onChunkLeave(player, pos, player.chunkPosition())) {
+            if (CachedChunkTrackingView.onChunkLeave(player, pos, player.chunkPosition(), nebEstimateChunkBodySize(pos))) {
                 int ticks = nebCacheTicketTicks();
                 TicketType<Integer> type = getCacheTicketType(ticks);
                 getDistanceManager().addRegionTicket(type, pos, 1, ticks);
@@ -269,6 +276,19 @@ public abstract class ChunkMapMixin {
         } finally {
             NEB_INTERNAL_TRACKING.set(false);
         }
+    }
+
+    @Unique
+    private int nebEstimateChunkBodySize(ChunkPos pos) {
+        ChunkHolder chunkHolder = this.updatingChunkMap.get(pos.toLong());
+        if (chunkHolder == null) {
+            return 0;
+        }
+        var chunk = chunkHolder.getTickingChunk();
+        if (chunk == null) {
+            chunk = chunkHolder.getFullChunk();
+        }
+        return RawTrafficHelper.estimateChunkBodySize(chunk);
     }
 
     @Shadow
