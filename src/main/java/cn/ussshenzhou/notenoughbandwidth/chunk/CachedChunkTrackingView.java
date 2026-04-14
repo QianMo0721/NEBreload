@@ -1,9 +1,10 @@
 package cn.ussshenzhou.notenoughbandwidth.chunk;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
+import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
-import it.unimi.dsi.fastutil.longs.Long2LongMaps;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.util.math.ChunkPos;
@@ -21,6 +22,7 @@ public class CachedChunkTrackingView {
     private static final WeakHashMap<EntityPlayerMP, CachedChunkTrackingView> PLAYER_CACHE_VIEWS = new WeakHashMap<EntityPlayerMP, CachedChunkTrackingView>();
 
     private final Long2LongLinkedOpenHashMap cache = new Long2LongLinkedOpenHashMap();
+    private final Long2IntOpenHashMap cachedRawSizes = new Long2IntOpenHashMap();
 
     private CachedChunkTrackingView() {
         cache.defaultReturnValue(NO_CACHE);
@@ -50,11 +52,16 @@ public class CachedChunkTrackingView {
             return false;
         }
 
-        LOGGER.trace("Cache hit at {} in {}'s chunk cache.", pos, player.getName());
+        int cachedRawSize = cachedView.cachedRawSizes.remove(packed);
+        if (cachedRawSize > 0) {
+            SimpleStatManager.outRaw(cachedRawSize);
+        }
+
+        LOGGER.trace("Cache hit at {} in {}'s chunk cache, restored {} raw bytes.", pos, player.getName(), Integer.valueOf(cachedRawSize));
         return true;
     }
 
-    public static boolean onChunkLeave(EntityPlayerMP player, ChunkPos pos, ChunkPos currentCenter) {
+    public static boolean onChunkLeave(EntityPlayerMP player, ChunkPos pos, ChunkPos currentCenter, int rawSize) {
         NotEnoughBandwidthLegacyConfig cfg = NotEnoughBandwidthLegacyConfig.get();
         int chunkCacheDistance = cfg.getDccDistanceSafe();
         if (!cfg.isDelayedChunkCachingUsable()) {
@@ -65,8 +72,14 @@ public class CachedChunkTrackingView {
         }
 
         CachedChunkTrackingView cachedView = get(player);
-        cachedView.cache.putAndMoveToLast(pack(pos), System.currentTimeMillis());
-        LOGGER.trace("Caching {} in {}'s chunk cache.", pos, player.getName());
+        long packed = pack(pos);
+        cachedView.cache.putAndMoveToLast(packed, System.currentTimeMillis());
+        if (rawSize > 0) {
+            cachedView.cachedRawSizes.put(packed, rawSize);
+        } else {
+            cachedView.cachedRawSizes.remove(packed);
+        }
+        LOGGER.trace("Caching {} in {}'s chunk cache with {} raw bytes.", pos, player.getName(), Integer.valueOf(rawSize));
         return true;
     }
 
@@ -89,6 +102,7 @@ public class CachedChunkTrackingView {
 
             if (chessboardDist(currentCenter, chunkPos) > chunkCacheDistance) {
                 it.remove();
+                cachedView.cachedRawSizes.remove(entry.getLongKey());
                 stopChunkTracking.accept(chunkPos);
                 LOGGER.trace("Remove {} from {}'s chunk cache: too far away.", chunkPos, player.getName());
                 continue;
@@ -96,6 +110,7 @@ public class CachedChunkTrackingView {
 
             if (now - entry.getLongValue() > timeoutMs) {
                 it.remove();
+                cachedView.cachedRawSizes.remove(entry.getLongKey());
                 stopChunkTracking.accept(chunkPos);
                 LOGGER.trace("Remove {} from {}'s chunk cache: timeout.", chunkPos, player.getName());
             }
@@ -104,6 +119,7 @@ public class CachedChunkTrackingView {
         while (cachedView.cache.size() > chunkCacheBufferSize) {
             long pos = cachedView.cache.firstLongKey();
             cachedView.cache.remove(pos);
+            cachedView.cachedRawSizes.remove(pos);
             ChunkPos chunkPos = unpack(pos);
             stopChunkTracking.accept(chunkPos);
             LOGGER.trace("Remove {} from {}'s chunk cache: buffer is full.", chunkPos, player.getName());
@@ -123,6 +139,7 @@ public class CachedChunkTrackingView {
             stopChunkTracking.accept(chunkPos);
         }
         cachedView.cache.clear();
+        cachedView.cachedRawSizes.clear();
     }
 
     private static int chessboardDist(ChunkPos a, ChunkPos b) {

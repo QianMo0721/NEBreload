@@ -2,6 +2,7 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.chunk.CachedChunkTrackingView;
+import cn.ussshenzhou.notenoughbandwidth.util.EncodedTrafficStatHelper;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.management.PlayerChunkMap;
 import net.minecraft.server.management.PlayerChunkMapEntry;
@@ -117,8 +118,9 @@ public abstract class PlayerChunkMapMixin {
                         getOrCreateEntry(x, z).addPlayer(player);
                     }
                 } else if (watching) {
-                    if (!CachedChunkTrackingView.onChunkLeave(player, pos, center)) {
-                        PlayerChunkMapEntry entry = getEntry(x, z);
+                    PlayerChunkMapEntry entry = getEntry(x, z);
+                    int cachedChunkRawSize = nebEstimateCachedChunkRawSize(entry);
+                    if (!CachedChunkTrackingView.onChunkLeave(player, pos, center, cachedChunkRawSize)) {
                         if (entry != null && entry.containsPlayer(player)) {
                             entry.removePlayer(player);
                         }
@@ -134,5 +136,12 @@ public abstract class PlayerChunkMapMixin {
 
     private static int nebChessboardDistance(ChunkPos a, ChunkPos b) {
         return Math.max(Math.abs(a.x - b.x), Math.abs(a.z - b.z));
+    }
+
+    private static int nebEstimateCachedChunkRawSize(PlayerChunkMapEntry entry) {
+        if (entry == null || entry.getChunk() == null) {
+            return 0;
+        }
+        return EncodedTrafficStatHelper.estimateChunkPacketRawSize(entry.getChunk());
     }
 }

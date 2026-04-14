@@ -5,7 +5,9 @@ import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacy;
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.config.ConfigHelper;
 import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
+import cn.ussshenzhou.notenoughbandwidth.indextype.NamespaceIndexManager;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
+import cn.ussshenzhou.notenoughbandwidth.util.EncodedTrafficStatHelper;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -134,7 +136,6 @@ public class PacketAggregationPacket {
                 raw = new PacketBuffer(source.copy(source.readerIndex(), source.readableBytes()));
             }
             try {
-                SimpleStatManager.inRaw(raw.readableBytes());
                 while (raw.isReadable()) {
                     boolean vanilla = raw.readBoolean();
                     if (vanilla) {
@@ -169,7 +170,7 @@ public class PacketAggregationPacket {
         if (stats == null) {
             return encodedPacket.readableBytes();
         }
-        return stats.wrapperOverhead + stats.rawPayloadSize;
+        return stats.wrapperOverhead + stats.rawPayloadSize + stats.indexedExtraSize;
     }
 
     public static int estimateWrapperOverheadFromEncodedWrapper(ByteBuf encodedPacket) {
@@ -191,22 +192,62 @@ public class PacketAggregationPacket {
             if (compressed) {
                 int rawPayloadSize = buf.readVarInt();
                 int compressedPayloadSize = buf.readableBytes();
-                return new ParsedWrapperStats(rawPayloadSize, totalSize - compressedPayloadSize);
+                PacketBuffer raw = new PacketBuffer(ZstdHelper.decompress(null, buf, rawPayloadSize));
+                try {
+                    return new ParsedWrapperStats(rawPayloadSize, totalSize - compressedPayloadSize, estimateIndexedExtraFromRawPayload(raw));
+                } finally {
+                    raw.release();
+                }
             }
-            int rawPayloadSize = buf.readableBytes();
-            return new ParsedWrapperStats(rawPayloadSize, totalSize - rawPayloadSize);
+            PacketBuffer raw = new PacketBuffer(buf.copy(buf.readerIndex(), buf.readableBytes()));
+            try {
+                int rawPayloadSize = raw.readableBytes();
+                return new ParsedWrapperStats(rawPayloadSize, totalSize - rawPayloadSize, estimateIndexedExtraFromRawPayload(raw));
+            } finally {
+                raw.release();
+            }
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private static int estimateIndexedExtraFromRawPayload(PacketBuffer raw) {
+        PacketBuffer probe = new PacketBuffer(raw.retainedDuplicate());
+        try {
+            int extra = 0;
+            while (probe.isReadable()) {
+                boolean vanilla = probe.readBoolean();
+                if (vanilla) {
+                    probe.readVarInt();
+                } else {
+                    int start = probe.readerIndex();
+                    ResourceLocation type = CustomPacketPrefixHelper.getType(probe);
+                    int consumed = probe.readerIndex() - start;
+                    int unindexedBytes = 1 + EncodedTrafficStatHelper.estimateResourceLocationBytes(type);
+                    if (unindexedBytes > consumed) {
+                        extra += unindexedBytes - consumed;
+                    }
+                }
+                int size = probe.readVarInt();
+                probe.skipBytes(size);
+            }
+            return extra;
+        } catch (Exception ignored) {
+            return 0;
+        } finally {
+            probe.release();
         }
     }
 
     private static final class ParsedWrapperStats {
         private final int rawPayloadSize;
         private final int wrapperOverhead;
+        private final int indexedExtraSize;
 
-        private ParsedWrapperStats(int rawPayloadSize, int wrapperOverhead) {
+        private ParsedWrapperStats(int rawPayloadSize, int wrapperOverhead, int indexedExtraSize) {
             this.rawPayloadSize = rawPayloadSize;
             this.wrapperOverhead = wrapperOverhead;
+            this.indexedExtraSize = indexedExtraSize;
         }
     }
 }
