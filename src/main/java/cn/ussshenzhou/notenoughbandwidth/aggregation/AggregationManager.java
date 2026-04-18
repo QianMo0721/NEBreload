@@ -52,13 +52,10 @@ public class AggregationManager {
     }
 
     public synchronized static void flushConnection(Connection connection) {
-        // 这里必须同步立刻冲刷，而不是丢到定时线程异步执行。
-        // 否则当 ConnectionMixin 遇到“需要旁路/跳过聚合”的包时，
-        // 原始包会继续立即发送，而之前缓冲的聚合包反而稍后才发出，
-        // 从而破坏顺序。像 FTB Quests 这类依赖严格收发时序的 payload
-        // 就会表现成任务书数据未收到、进服后功能异常甚至超时。
-        PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
-        flushInternal(connection, PACKET_BUFFER.get(connection));
+        TIMER.execute(() -> {
+            PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
+            flushInternal(connection, PACKET_BUFFER.get(connection));
+        });
     }
 
     private synchronized static void flush() {

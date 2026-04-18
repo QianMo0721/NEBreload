@@ -6,6 +6,7 @@ import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.simple.SimpleChannel;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Optional;
 
 /**
@@ -13,6 +14,7 @@ import java.util.Optional;
  */
 public class ModNetworkRegistry {
     private static final String PROTOCOL_VERSION = "1";
+    private static final ConcurrentHashMap<Class<?>, ResourceLocation> CLASS_TO_ID = new ConcurrentHashMap<>();
 
     public static final SimpleChannel QUERY_CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_query"),
@@ -36,6 +38,9 @@ public class ModNetworkRegistry {
         }
         registered = true;
 
+        CLASS_TO_ID.put(StatQuery.class, StatQuery.TYPE);
+        CLASS_TO_ID.put(StatRespond.class, StatRespond.TYPE);
+
         QUERY_CHANNEL.registerMessage(
                 0,
                 StatQuery.class,
@@ -53,5 +58,12 @@ public class ModNetworkRegistry {
                 (pkt, ctx) -> pkt.handle(ctx),
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
+    }
+
+    public static ResourceLocation getPacketId(Class<?> clazz) {
+        if (clazz == null) {
+            return null;
+        }
+        return CLASS_TO_ID.get(clazz);
     }
 }

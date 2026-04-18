@@ -4,26 +4,32 @@ import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import cn.ussshenzhou.notenoughbandwidth.util.CustomPayloadCodecHelper;
 import io.netty.buffer.ByteBufAllocator;
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.client.multiplayer.ClientPacketListener;
-import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.Connection;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.PacketFlow;
-import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import java.util.ArrayList;
-
 @Mixin(ClientPacketListener.class)
 public class ClientPacketListenerMixin {
 
-    @SuppressWarnings("unchecked")
+    @Shadow
+    private Connection connection;
+
     @Inject(method = "handleCustomPayload", at = @At("HEAD"), cancellable = true)
     private void nebHandleAggregatedPayload(ClientboundCustomPayloadPacket packet, CallbackInfo ci) {
         Minecraft minecraft = Minecraft.getInstance();
+        if (PacketAggregationPacket.TYPE.equals(packet.getIdentifier())) {
+            PacketAggregationPacket aggregationPacket = new PacketAggregationPacket(packet.getData());
+            aggregationPacket.replay(connection, PacketFlow.CLIENTBOUND);
+            ci.cancel();
+            return;
+        }
         if (!minecraft.isSameThread()) {
             ClientboundCustomPayloadPacket copiedPacket;
             FriendlyByteBuf payload = packet.getData();
@@ -48,13 +54,5 @@ public class ClientPacketListenerMixin {
             }
             return;
         }
-
-        PacketAggregationPacket aggregationPacket = new PacketAggregationPacket(packet.getData());
-        ArrayList<Packet<?>> packets = aggregationPacket.decodeToPackets(PacketFlow.CLIENTBOUND);
-        ClientGamePacketListener listener = (ClientGamePacketListener) (Object) this;
-        for (Packet<?> subPacket : packets) {
-            ((Packet<ClientGamePacketListener>) subPacket).handle(listener);
-        }
-        ci.cancel();
     }
 }

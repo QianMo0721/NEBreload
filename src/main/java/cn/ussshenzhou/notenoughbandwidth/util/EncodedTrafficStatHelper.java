@@ -18,11 +18,11 @@ public final class EncodedTrafficStatHelper {
     }
 
     public static int estimateRawPacketSize(Packet<?> packet, ByteBuf encodedPacket) {
-        if (packet instanceof ClientboundCustomPayloadPacket || packet instanceof ServerboundCustomPayloadPacket) {
-            return estimateRawCustomPayloadPacketSize(encodedPacket);
-        }
         if (PacketAggregationPacket.TYPE.equals(PacketUtil.getTrueType(packet))) {
             return PacketAggregationPacket.estimateRawSizeFromEncodedWrapper(encodedPacket);
+        }
+        if (packet instanceof ClientboundCustomPayloadPacket || packet instanceof ServerboundCustomPayloadPacket) {
+            return estimateRawCustomPayloadPacketSize(encodedPacket);
         }
         return encodedPacket.readableBytes();
     }

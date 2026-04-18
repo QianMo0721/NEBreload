@@ -193,6 +193,24 @@ public class PacketAggregationPacket {
         }
     }
 
+    public void replay(Connection connection, PacketFlow flow) {
+        try {
+            var entries = decodeEntries();
+            for (AggregatedDecodePacket entry : entries) {
+                try {
+                    entry.replay(connection, flow);
+                } finally {
+                    entry.getData().release();
+                }
+            }
+        } finally {
+            if (data != null) {
+                data.release();
+                data = null;
+            }
+        }
+    }
+
     private ArrayList<AggregatedDecodePacket> decodeEntries() {
         this.bakedSize = data.readableBytes();
 
