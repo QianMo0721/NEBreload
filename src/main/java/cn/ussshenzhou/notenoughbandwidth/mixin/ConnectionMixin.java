@@ -10,13 +10,13 @@ import net.minecraft.network.PacketListener;
 import net.minecraft.network.PacketSendListener;
 import net.minecraft.network.protocol.BundlePacket;
 import net.minecraft.network.protocol.Packet;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import javax.annotation.Nullable;
 import java.net.SocketAddress;
 
 /**
@@ -24,41 +24,36 @@ import java.net.SocketAddress;
  */
 @Mixin(value = Connection.class, priority = 1)
 public abstract class ConnectionMixin {
+
     @Shadow
     @Nullable
     private volatile PacketListener packetListener;
 
     @Shadow
-    public abstract void send(Packet<?> packet, @Nullable PacketSendListener listener);
+    public abstract void send(Packet<?> packet, @Nullable PacketSendListener listener, boolean flush);
 
     @Shadow
     public abstract SocketAddress getRemoteAddress();
 
-    @Shadow
-    private ConnectionProtocol getCurrentProtocol() {
-        throw new AssertionError();
-    }
-
-    @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V", at = @At("HEAD"), cancellable = true)
-    private void nebwPacketAggregate(Packet<?> packet, @Nullable PacketSendListener listener, CallbackInfo ci) {
-        ConnectionProtocol currentProtocol;
-        try {
-            currentProtocol = this.getCurrentProtocol();
-        } catch (Exception ignored) {
+    @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;Z)V", at = @At("HEAD"), cancellable = true)
+    private void nebwPacketAggregate(Packet<?> packet, @Nullable PacketSendListener listener, boolean flush, CallbackInfo ci) {
+        //only work on play
+        if (this.getRemoteAddress() instanceof LocalAddress || this.packetListener == null || this.packetListener.protocol() != ConnectionProtocol.PLAY) {
             return;
         }
-        if (this.getRemoteAddress() instanceof LocalAddress || this.packetListener == null || currentProtocol != ConnectionProtocol.PLAY) {
-            return;
-        }
+        //compatability and avoid infinite loop
         if (NotEnoughBandwidthLegacyConfig.skipType(PacketUtil.getTrueType(packet).toString())) {
+            //flush to ensure packet order
             AggregationManager.flushConnection((Connection) (Object) this);
             return;
         }
+        //de-bundle
         if (packet instanceof BundlePacket<?> bundlePacket) {
-            bundlePacket.subPackets().forEach(p -> this.send(p, listener));
+            bundlePacket.subPackets().forEach(p -> this.send(p, listener, flush));
             ci.cancel();
             return;
         }
+        //take over
         AggregationManager.takeOver(packet, (Connection) (Object) this);
         ci.cancel();
     }

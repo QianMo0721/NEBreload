@@ -1,136 +1,84 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
-import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
-import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.ConnectionProtocol;
+import net.minecraft.network.ProtocolInfo;
+import net.minecraft.network.codec.IdDispatchCodec;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
-import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.PacketType;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-
-import javax.annotation.Nullable;
+import net.neoforged.neoforge.network.registration.NetworkRegistry;
 
 /**
  * @author USS_Shenzhou
  */
 @SuppressWarnings("DataFlowIssue")
 public class AggregatedEncodePacket {
+    public final ResourceLocation type;
+    private final boolean isMinecraft;
     private final Packet<?> packet;
-    @Nullable
-    private final ResourceLocation type;
-    private final int vanillaPacketId;
+    private final CustomPacketPayload payload;
 
-    public AggregatedEncodePacket(Packet<?> p, @Nullable ResourceLocation type, PacketFlow flow) {
-        this.packet = p;
-        if (p instanceof ClientboundCustomPayloadPacket || p instanceof ServerboundCustomPayloadPacket) {
-            this.type = type;
-            this.vanillaPacketId = -1;
+    public AggregatedEncodePacket(Packet<?> p, ResourceLocation type) {
+        if (p instanceof ServerboundCustomPayloadPacket(CustomPacketPayload pld)) {
+            this.isMinecraft = false;
+            this.packet = null;
+            this.payload = pld;
+        } else if (p instanceof ClientboundCustomPayloadPacket(CustomPacketPayload pld)) {
+            this.isMinecraft = false;
+            this.packet = null;
+            this.payload = pld;
         } else {
-            this.type = null;
-            this.vanillaPacketId = ConnectionProtocol.PLAY.getPacketId(flow, p);
+            this.isMinecraft = true;
+            this.packet = p;
+            this.payload = null;
         }
+        this.type = type;
     }
 
-    public boolean isVanillaPacket() {
-        return vanillaPacketId >= 0;
-    }
-
-    public int getVanillaPacketId() {
-        return vanillaPacketId;
-    }
-
-    @Nullable
-    public ResourceLocation getType() {
-        return type;
+    public void encode(ByteBuf buf, ProtocolInfo<?> protocolInfo, PacketFlow packetFlow) {
+        if (isMinecraft) {
+            encodeVanilla(buf, protocolInfo);
+        } else {
+            encodeCustom(buf, packetFlow);
+        }
     }
 
     /**
-     * Encode only the payload body for game custom-payload packets, because the
-     * aggregated prefix already carries the channel identifier. For normal
-     * vanilla packets, mirror PacketEncoder by delegating to Packet#write.
+     * @see IdDispatchCodec
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
-    public void encode(ByteBuf buf) {
+    private void encodeVanilla(ByteBuf buf, ProtocolInfo<?> protocolInfo) {
+        IdDispatchCodec<ByteBuf, Packet<?>, PacketType> vanillaCodec = (IdDispatchCodec) protocolInfo.codec();
+        var type = vanillaCodec.typeGetter.apply(packet);
+        int id = vanillaCodec.toId.getOrDefault(type, -1);
+        if (id == -1) {
+            LogUtils.getLogger().error("Skipped EncoderException: Sending unknown packet " + type);
+            return;
+        }
+        var entry = vanillaCodec.byId.get(id);
+        var codec = (StreamCodec<ByteBuf, Packet<?>>) entry.serializer();
         try {
-            if (packet instanceof ClientboundCustomPayloadPacket clientbound) {
-                FriendlyByteBuf payload = clientbound.getData();
-                try {
-                    writeCustomPayloadBody(buf, payload);
-                } finally {
-                    payload.release();
-                }
-                return;
-            }
-            if (packet instanceof ServerboundCustomPayloadPacket serverbound) {
-                writeCustomPayloadBody(buf, serverbound.getData());
-                return;
-            }
-            var friendly = new FriendlyByteBuf(buf);
-            ((Packet) packet).write(friendly);
+            codec.encode(buf, packet);
         } catch (Exception e) {
-            LogUtils.getLogger().error("[NEB] Skipped: Failed to encode packet " + type, e);
+            throw e;
         }
     }
 
-    public Packet<?> getPacket() {
-        return packet;
-    }
-
-    private void writeCustomPayloadBody(ByteBuf out, FriendlyByteBuf payload) {
-        int bodyStart = findPayloadBodyStart(payload);
-        int bodyLength = payload.writerIndex() - bodyStart;
-        if (bodyLength < 0) {
-            bodyStart = payload.readerIndex();
-            bodyLength = payload.readableBytes();
-        }
-        out.writeBytes(payload, bodyStart, bodyLength);
-    }
-
-    private int findPayloadBodyStart(FriendlyByteBuf payload) {
-        if (type == null) {
-            return payload.readerIndex();
-        }
-        Integer indexedHeaderEnd = tryConsumeIndexedHeader(payload);
-        if (indexedHeaderEnd != null) {
-            return indexedHeaderEnd;
-        }
-        Integer vanillaHeaderEnd = tryConsumeVanillaHeader(payload);
-        if (vanillaHeaderEnd != null) {
-            return vanillaHeaderEnd;
-        }
-        return payload.readerIndex();
-    }
-
-    private Integer tryConsumeIndexedHeader(FriendlyByteBuf payload) {
-        FriendlyByteBuf probe = new FriendlyByteBuf(payload.retainedDuplicate());
+    @SuppressWarnings({"UnstableApiUsage", "unchecked"})
+    private void encodeCustom(ByteBuf buf, PacketFlow packetFlow) {
+        var codec = (StreamCodec<ByteBuf, CustomPacketPayload>) NetworkRegistry.getCodec(payload.type().id(), ConnectionProtocol.PLAY, packetFlow);
         try {
-            ResourceLocation decoded = CustomPacketPrefixHelper.getType(probe);
-            if (type.equals(decoded)) {
-                return probe.readerIndex();
-            }
-            return null;
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            probe.release();
+            codec.encode(buf, payload);
+        } catch (Exception e) {
+            throw e;
         }
     }
 
-    private Integer tryConsumeVanillaHeader(FriendlyByteBuf payload) {
-        FriendlyByteBuf probe = new FriendlyByteBuf(payload.retainedDuplicate());
-        try {
-            ResourceLocation decoded = probe.readResourceLocation();
-            if (type.equals(decoded)) {
-                return probe.readerIndex();
-            }
-            return null;
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            probe.release();
-        }
-    }
 }

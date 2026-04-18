@@ -1,6 +1,8 @@
 package cn.ussshenzhou.notenoughbandwidth.zstd;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
+import com.github.luben.zstd.EndDirective;
+import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdCompressCtx;
 import com.github.luben.zstd.ZstdDecompressCtx;
 
@@ -13,42 +15,54 @@ import java.nio.ByteBuffer;
 public class Context implements Closeable {
     private final ZstdCompressCtx compressCtx;
     private final ZstdDecompressCtx decompressCtx;
+    private final boolean useContext;
 
-    public Context() {
+    public Context(boolean useContext) {
         compressCtx = new ZstdCompressCtx();
-        compressCtx.setLevel(NotEnoughBandwidthLegacyConfig.get().getZstdCompressionLevel());
+        compressCtx.setLevel(3);
         compressCtx.setContentSize(false);
         compressCtx.setMagicless(true);
         compressCtx.setWindowLog(NotEnoughBandwidthLegacyConfig.get().getContextLevel());
         decompressCtx = new ZstdDecompressCtx();
         decompressCtx.setMagicless(true);
+        this.useContext = useContext;
     }
 
-    public ByteBuffer compress(ByteBuffer src) {
-        return compressCtx.compress(ensureDirect(src));
+    public ByteBuffer compress(ByteBuffer raw) {
+        if (useContext) {
+            int maxDstSize = (int) Zstd.compressBound(raw.remaining());
+            var dst = ByteBuffer.allocateDirect(maxDstSize);
+            compressCtx.compressDirectByteBufferStream(dst, raw, EndDirective.FLUSH);
+            dst.flip();
+            return dst;
+        }
+        return compressCtx.compress(raw);
     }
 
-    public ByteBuffer decompress(ByteBuffer src, int originalSize) {
-        ByteBuffer dst = ByteBuffer.allocateDirect(originalSize);
-        decompressCtx.decompress(dst, ensureDirect(src));
+    public ByteBuffer decompress(ByteBuffer compressed, int originalSize) {
+        var dst = ByteBuffer.allocateDirect(originalSize);
+        decompressCtx.decompressDirectByteBufferStream(dst, compressed);
         dst.flip();
         return dst;
+        //return decompressCtx.decompress(compressed, originalSize);
     }
 
-    private static ByteBuffer ensureDirect(ByteBuffer src) {
-        ByteBuffer slice = src.slice();
-        if (slice.isDirect()) {
-            return slice;
-        }
-        ByteBuffer direct = ByteBuffer.allocateDirect(slice.remaining());
-        direct.put(slice);
-        direct.flip();
-        return direct;
-    }
 
     @Override
     public void close() {
         compressCtx.close();
         decompressCtx.close();
     }
+
+    //private static int getBestWindowLog() {
+    //    long maxDirectMemory = getMaxDirectMemory();
+    //}
+
+    //private static long getMaxDirectMemory() {
+    //    long direct = Long.parseLong(ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class).getVMOption("MaxDirectMemorySize").getValue());
+    //    if (direct == 0) {
+    //        direct = Runtime.getRuntime().maxMemory();
+    //    }
+    //    return direct;
+    //}
 }

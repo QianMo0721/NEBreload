@@ -2,21 +2,23 @@ package cn.ussshenzhou.network;
 
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
+import io.netty.buffer.ByteBuf;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.network.NetworkDirection;
-import net.minecraftforge.network.NetworkEvent;
-
-import java.util.function.Supplier;
+import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import static cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager.LOCAL;
 
 /**
  * @author USS_Shenzhou
  */
-public class StatQuery {
-    public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_query");
+public class StatQuery implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<StatQuery> TYPE = new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_query"));
+    public static final StreamCodec<ByteBuf, StatQuery> STREAM_CODEC = StreamCodec.unit(new StatQuery());
 
     public StatQuery() {
     }
@@ -24,31 +26,23 @@ public class StatQuery {
     public StatQuery(FriendlyByteBuf buf) {
     }
 
-    public void encode(FriendlyByteBuf buf) {
-        // empty
+    public void handle(IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer serverPlayer && serverPlayer.hasPermissions(2)) {
+            PacketDistributor.sendToPlayer(serverPlayer, new StatRespond(
+                    LOCAL.inboundBytesBaked().get(),
+                    LOCAL.inboundBytesRaw().get(),
+                    LOCAL.outboundBytesBaked().get(),
+                    LOCAL.outboundBytesRaw().get(),
+                    LOCAL.inboundSpeedBaked().averageIn1s(),
+                    LOCAL.inboundSpeedRaw().averageIn1s(),
+                    LOCAL.outboundSpeedBaked().averageIn1s(),
+                    LOCAL.outboundSpeedRaw().averageIn1s()
+            ));
+        }
     }
 
-    public void handle(Supplier<NetworkEvent.Context> ctxSupplier) {
-        NetworkEvent.Context ctx = ctxSupplier.get();
-        ctx.enqueueWork(() -> {
-            ServerPlayer serverPlayer = ctx.getSender();
-            if (serverPlayer != null && serverPlayer.hasPermissions(2)) {
-                cn.ussshenzhou.network.ModNetworkRegistry.RESPOND_CHANNEL.sendTo(
-                        new StatRespond(
-                                LOCAL.inboundBytesBaked().get(),
-                                LOCAL.inboundBytesRaw().get(),
-                                LOCAL.outboundBytesBaked().get(),
-                                LOCAL.outboundBytesRaw().get(),
-                                LOCAL.inboundSpeedBaked().averageIn1s(),
-                                LOCAL.inboundSpeedRaw().averageIn1s(),
-                                LOCAL.outboundSpeedBaked().averageIn1s(),
-                                LOCAL.outboundSpeedRaw().averageIn1s()
-                        ),
-                        serverPlayer.connection.connection,
-                        NetworkDirection.PLAY_TO_CLIENT
-                );
-            }
-        });
-        ctx.setPacketHandled(true);
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

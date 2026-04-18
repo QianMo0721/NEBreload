@@ -4,30 +4,26 @@ import cn.ussshenzhou.notenoughbandwidth.util.DefaultChannelPipelineHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mojang.logging.LogUtils;
+import io.netty.channel.DefaultChannelPipeline;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.resources.ResourceLocation;
 
 import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.WeakHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 
 /**
  * @author USS_Shenzhou
  */
 public class AggregationManager {
     private static final WeakHashMap<Connection, ArrayList<AggregatedEncodePacket>> PACKET_BUFFER = new WeakHashMap<>();
-    private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(
-            new ThreadFactoryBuilder().setNameFormat("NEB-Flush-thread").setDaemon(true).build());
+    private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryBuilder().setNameFormat("NEB-Flush-thread").setDaemon(true).build());
     private static final ArrayList<ScheduledFuture<?>> TASKS = new ArrayList<>();
     private static volatile boolean initialized = false;
-
-    public static boolean isInitialized() {
-        return initialized;
-    }
 
     public synchronized static void init() {
         if (initialized) {
@@ -37,18 +33,18 @@ public class AggregationManager {
         PACKET_BUFFER.clear();
         TASKS.forEach(task -> task.cancel(false));
         TASKS.clear();
-        TASKS.add(TIMER.scheduleAtFixedRate(
-                AggregationManager::flush,
-                0,
-                AggregationFlushHelper.getFlushPeriodInMilliseconds(),
-                TimeUnit.MILLISECONDS));
+        TASKS.add(TIMER.scheduleAtFixedRate(AggregationManager::flush, 0, AggregationFlushHelper.getFlushPeriodInMilliseconds(), TimeUnit.MILLISECONDS));
         initialized = true;
     }
 
     public synchronized static void takeOver(Packet<?> packet, Connection connection) {
         var type = PacketUtil.getTrueType(packet);
-        PACKET_BUFFER.computeIfAbsent(connection, k -> new ArrayList<>())
-                .add(new AggregatedEncodePacket(packet, type, connection.getSending()));
+        PACKET_BUFFER.computeIfAbsent(connection, conn -> new ArrayList<>()).add(new AggregatedEncodePacket(packet, type));
+    }
+
+    private synchronized static void flush() {
+        PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
+        PACKET_BUFFER.forEach(AggregationManager::flushInternal);
     }
 
     public synchronized static void flushConnection(Connection connection) {
@@ -58,33 +54,26 @@ public class AggregationManager {
         });
     }
 
-    private synchronized static void flush() {
-        PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
-        PACKET_BUFFER.forEach(AggregationManager::flushInternal);
-    }
-
-    private synchronized static void flushInternal(
-            Connection connection,
-            @Nullable ArrayList<AggregatedEncodePacket> packets) {
+    private synchronized static void flushInternal(Connection connection, @Nullable ArrayList<AggregatedEncodePacket> packets) {
         try {
             if (packets == null || packets.isEmpty()) {
                 return;
             }
-
-            if (connection.channel() == null || !connection.isConnected()) {
+            var encoder = DefaultChannelPipelineHelper.getPacketEncoder((DefaultChannelPipeline) connection.channel().pipeline());
+            if (encoder == null) {
+                LogUtils.getLogger().error("Failed to get PacketEncoder of connection {} {}.", connection.getDirection(), connection.getRemoteAddress());
                 return;
             }
-
             var sendPackets = new ArrayList<>(packets);
+            connection.send(connection.getSending() == PacketFlow.CLIENTBOUND
+                            ? new ClientboundCustomPayloadPacket(new PacketAggregationPacket(sendPackets, encoder.getProtocolInfo(), connection))
+                            : new ServerboundCustomPayloadPacket(new PacketAggregationPacket(sendPackets, encoder.getProtocolInfo(), connection)),
+                    null, true
+            );
             packets.clear();
-
-            var aggregationPacket = new PacketAggregationPacket(sendPackets, connection);
-            connection.send(DefaultChannelPipelineHelper.toVanillaAggregatedPacket(connection, aggregationPacket));
-            if (connection.channel() != null) {
-                connection.channel().flush();
-            }
+            connection.flushChannel();
         } catch (Exception e) {
-            LogUtils.getLogger().error("[NEB] Skipped: Failed to flush packets.", e);
+            LogUtils.getLogger().error("Skipped: Failed to flush packets.", e);
         }
     }
 }

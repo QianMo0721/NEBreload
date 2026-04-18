@@ -4,11 +4,11 @@
 
 NEB通过多种方式来尽可能地节省Minecraft游玩过程中产生的流量，并对模组和玩家保持透明。
 
-在[TeaCon 甲辰](teacon.cn)的土球数据集中，相比未压缩的原始数据，NEB理论上可以将服务器的出站流量减少到原来的7.6%。作为对比，原版默认压缩机制的出站流量是原始数据大小的39%。
+在[TeaCon 甲辰](https://teacon.cn)的土球数据集中，相比未压缩的原始数据，NEB理论上可以将服务器的出站流量减少到原来的7.6%。作为对比，原版默认压缩机制的出站流量是原始数据大小的39%。
 
 NEB uses various methods to save as much network traffic as possible during Minecraft gameplay, while remaining transparent to both mods and players.
 
-In the ZZZZ Dataset from [TeaCon Jiachen](teacon.cn), compared to raw uncompressed data, NEB can theoretically reduce the server's outbound traffic to 7.6% of its original size. For comparison, the outbound traffic of Vanilla's default compression mechanism is 39% of the original data size.
+In the ZZZZ Dataset from [TeaCon Jiachen](https://teacon.cn), compared to raw uncompressed data, NEB can theoretically reduce the server's outbound traffic to 7.6% of its original size. For comparison, the outbound traffic of Vanilla's default compression mechanism is 39% of the original data size.
 
 <img width="1908" height="1908" alt="output" src="https://github.com/user-attachments/assets/5e015031-f6e8-4280-a280-17da859a8615" />
 
@@ -163,51 +163,16 @@ A larger context window results in better compression and bandwidth savings, but
 
 The maximum number of cached chunks, cached chunk distance, and cache timeout allowed by the Delayed Chunk Cache (DCC). Larger values may consume more memory, while smaller values may trigger updates more frequently.
 
+### playersDoNotUseContext
 
-## 移植信息
-移植者在移植时,略微修改了模组原理,以下为详细信息:
-### 1) 初始化入口与事件总线
-- **Forge** 入口 [`NotEnoughBandwidth`] 在构造器内加载配置并注册 SimpleChannel：调用 [`ModNetworkRegistry.register()`]。
-- **NeoForge** 入口 [`NotEnoughBandwidth`] 仅加载配置，网络注册走事件订阅 [`ModNetworkRegistry.networkPacketRegistry()`]。
+> [!NOTE]
+> **此选项仅在服务端生效。**
+>
+> ONLY WORK ON SERVER.
 
-### 2) 网络注册模型（SimpleChannel vs Payload）
-- **Forge** 使用 [`SimpleChannel`] 显式注册消息类：
-    - [`PacketAggregationPacket`]
-    - [`StatQuery`]
-    - [`StatRespond`]
-- **NeoForge** 使用 Payload 注册，仅注册聚合包：[`PacketAggregationPacket`]，统计包是 [`CustomPacketPayload`] 体系。
+指定一个特殊的UUID名单，在这个名单中的玩家不启用Zstd上下文复用。适用于Replay等依赖网络包重放的mod。
 
-### 3) 数据包类型识别与解析
-- **Forge** [`PacketUtil.getTrueType()`] 流程：反射 `type().id()` → SimpleChannel 注册表 → 类名 snake_case 回退；[`getTruePacket()`]直接返回原包。
-- **NeoForge** [`PacketUtil.getTrueType()`] 会识别 `CustomPayload` 并取 payload 的 `type().id()`；[`getTruePacket()`] 返回 payload 本体。
-
-### 4) 聚合包编码/解码差异
-- **Forge** 聚合包编码走 `Packet#write`：[`AggregatedEncodePacket.encode()`]。解码后通过协议映射或 SimpleChannel 分发：[`AggregatedDecodePacket.handle()`] 与 [`dispatchForgePacket()`]。
-- **NeoForge** 聚合包编码依赖 `ProtocolInfo` 与 `NetworkRegistry` codec：[`AggregatedEncodePacket.encode()`]。解码通过 `IdDispatchCodec` + `NetworkRegistry.getCodec()`：[`AggregatedDecodePacket.handle()`]。
-
-### 5) 连接层拦截与 Bundle 解包
-- **Forge** [`ConnectionMixin`] 通过监听器类型判断 play 阶段，bundle 识别用反射方法名：[`isBundlePacket()`]。
-- **NeoForge** [`ConnectionMixin`] 直接判断 `ConnectionProtocol.PLAY`，且 `instanceof BundlePacket` 直接解包。
-
-### 6) 初始化时机（索引与聚合管理）
-- **Forge** 首个玩家加入时初始化：[`NetworkRegistryMixin.placeNewPlayer()`] → [`NamespaceIndexManager.initFromRegistry()`] + [`AggregationManager.init()`]。客户端在 [`ClientNetworkRegistryMixin`] 的 `FMLClientSetupEvent` 初始化。
-- **NeoForge** [`NamespaceIndexManager`] 依赖 payload 注册表，并过滤 `optional` payload。
-
-### 7) Mixin 注入点与统计记录
-- **Forge** 在 `decode/encode` 尾部统计：[`PacketDecoderMixin`]、[`PacketEncoderMixin`]。
-- **NeoForge** 使用 mixinextras `@Local` 在 profiler 调用前注入：[`PacketDecoderMixin`]、[`PacketEncoderMixin`]。
-
-### 8) CustomPayload 头部索引压缩
-- **Forge** `ResourceLocation` 版本：[`CustomPacketPayloadMixin`] + [`CustomPacketPrefixHelper`]。
-- **NeoForge** `Identifier` 版本：[`CustomPacketPrefixHelper`]。
-
-### 9) 统计包实现差异
-- **Forge** 统计包为 SimpleChannel 消息类：[`StatQuery`]、[`StatRespond`]。
-- **NeoForge** 统计包为 `CustomPacketPayload`：[`StatQuery`]、[`StatRespond`]。
-
-### 10) 配置黑名单差异（内置通道）
-- **Forge** `COMMON_BLOCK_LIST` 包含 Forge 内部通道：[`NotEnoughBandwidthConfig`]。
-- **NeoForge** `COMMON_BLOCK_LIST` 适配 NeoForge payload：[`NotEnoughBandwidthConfig`]。
+Assign a special UUID list, server will not reuse ZSTD context for these players. Designed for mods such as Replay, which relies on packet re-play.
 
 ## 版权和许可 | Copyrights and Licenses
 

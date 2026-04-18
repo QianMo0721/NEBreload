@@ -3,17 +3,15 @@ package cn.ussshenzhou.notenoughbandwidth.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
+import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
-import cn.ussshenzhou.notenoughbandwidth.config.TMultiInstanceConfig;
 
 /**
  * @author USS_Shenzhou
@@ -25,7 +23,7 @@ public class MultiInstanceConfigHelper {
 
     private static void checkDir(File dir) {
         if (!dir.isDirectory()) {
-            dir.mkdirs();
+            dir.mkdir();
         }
     }
 
@@ -53,7 +51,7 @@ public class MultiInstanceConfigHelper {
         }
         for (File f : instances) {
             try {
-                TMultiInstanceConfig instance = GSON.fromJson(Files.readString(f.toPath(), StandardCharsets.UTF_8), clazz);
+                TMultiInstanceConfig instance = GSON.fromJson(FileUtils.readFileToString(f, StandardCharsets.UTF_8), clazz);
                 putCache(instance);
                 saveConfig(instance);
             } catch (IOException ignored) {
@@ -111,13 +109,9 @@ public class MultiInstanceConfigHelper {
 
     public static <T extends TMultiInstanceConfig> void saveConfig(T config) {
         File configFile = checkChildDir(config).toPath().resolve(config.getFileName() + ".json").toFile();
-        CompletableFuture.runAsync(() -> {
+        CompletableFuture.runAsync(()->{
             try {
-                Path parent = configFile.toPath().getParent();
-                if (parent != null) {
-                    Files.createDirectories(parent);
-                }
-                Files.writeString(configFile.toPath(), GSON.toJson(config), StandardCharsets.UTF_8);
+                FileUtils.write(configFile, GSON.toJson(config), StandardCharsets.UTF_8);
             } catch (IOException ignored) {
                 LogUtils.getLogger().error("Failed to save config {}. Things may not work well.", config.getClass());
             }

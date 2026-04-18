@@ -1,7 +1,7 @@
 package cn.ussshenzhou.notenoughbandwidth.util;
 
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
-import net.minecraft.Util;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author USS_Shenzhou
@@ -19,13 +19,13 @@ public class TimeCounter {
     }
 
     private synchronized void update() {
-        long now = Util.getMillis();
+        long now = System.currentTimeMillis();
         container.keySet().removeIf(then -> now - then > windowsSizeMs);
     }
 
     public synchronized void put(int value) {
         update();
-        container.put(Util.getMillis(), value);
+        container.put(System.currentTimeMillis(), value);
     }
 
     public synchronized double averageIn1s() {

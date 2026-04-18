@@ -2,8 +2,8 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
-import cn.ussshenzhou.notenoughbandwidth.util.EncodedTrafficStatHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
+import com.llamalad7.mixinextras.sugar.Local;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import net.minecraft.network.PacketDecoder;
@@ -22,20 +22,13 @@ import java.util.List;
 public class PacketDecoderMixin {
 
     @Inject(method = "decode",
-            at = @At(value = "TAIL"))
-    private void nebRecordIn(ChannelHandlerContext ctx, ByteBuf input, List<Object> out, CallbackInfo ci) {
-        if (!out.isEmpty()) {
-            Object last = out.get(out.size() - 1);
-            if (last instanceof Packet<?> packet) {
-                int bakedSize = input.readerIndex();
-                int rawSize = EncodedTrafficStatHelper.estimateRawPacketSize(packet, input);
-                SimpleStatManager.inBaked(bakedSize);
-                SimpleStatManager.inRaw(rawSize);
-                Object truePacket = PacketUtil.getTruePacket(packet);
-                if (truePacket instanceof PacketAggregationPacket aggregationPacket) {
-                    aggregationPacket.setBakedSize(bakedSize);
-                }
-            }
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiling/jfr/JvmProfiler;onPacketReceived(Lnet/minecraft/network/ConnectionProtocol;Lnet/minecraft/network/protocol/PacketType;Ljava/net/SocketAddress;I)V", shift = At.Shift.BEFORE))
+    private void nebRecordIn(ChannelHandlerContext ctx, ByteBuf input, List<Object> out, CallbackInfo ci, @Local int size, @Local Packet<?> packet) {
+        SimpleStatManager.inBaked(size);
+        if (PacketUtil.getTruePacket(packet) instanceof PacketAggregationPacket aggregationPacket) {
+            aggregationPacket.setBakedSize(size);
+        } else {
+            SimpleStatManager.inRaw(size);
         }
     }
 }

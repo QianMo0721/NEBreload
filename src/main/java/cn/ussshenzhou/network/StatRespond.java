@@ -2,31 +2,60 @@ package cn.ussshenzhou.network;
 
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
+import cn.ussshenzhou.notenoughbandwidth.util.TimeCounter;
+import io.netty.buffer.ByteBuf;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.api.distmarker.OnlyIn;
-import net.minecraftforge.network.NetworkEvent;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author USS_Shenzhou
  */
-public class StatRespond {
-    public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_resp");
+public class StatRespond implements CustomPacketPayload {
+    public static final Type<StatRespond> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_resp"));
+    public static final StreamCodec<ByteBuf, StatRespond> STREAM_CODEC = new StreamCodec<>() {
+        @Override
+        public StatRespond decode(ByteBuf buf) {
+            long inboundBytesBaked = ByteBufCodecs.VAR_LONG.decode(buf);
+            long inboundBytesRaw = ByteBufCodecs.VAR_LONG.decode(buf);
+            long outboundBytesBaked = ByteBufCodecs.VAR_LONG.decode(buf);
+            long outboundBytesRaw = ByteBufCodecs.VAR_LONG.decode(buf);
+            double inboundSpeedBaked = ByteBufCodecs.DOUBLE.decode(buf);
+            double inboundSpeedRaw = ByteBufCodecs.DOUBLE.decode(buf);
+            double outboundSpeedBaked = ByteBufCodecs.DOUBLE.decode(buf);
+            double outboundSpeedRa = ByteBufCodecs.DOUBLE.decode(buf);
+            return new StatRespond(inboundBytesBaked, inboundBytesRaw, outboundBytesBaked, outboundBytesRaw, inboundSpeedBaked, inboundSpeedRaw, outboundSpeedBaked, outboundSpeedRa);
+        }
 
-    private final long inboundBytesBaked;
-    private final long inboundBytesRaw;
-    private final long outboundBytesBaked;
-    private final long outboundBytesRaw;
-    private final double inboundSpeedBaked;
-    private final double inboundSpeedRaw;
-    private final double outboundSpeedBaked;
-    private final double outboundSpeedRaw;
+        @Override
+        public void encode(ByteBuf buf, StatRespond value) {
+            ByteBufCodecs.VAR_LONG.encode(buf, value.inboundBytesBaked);
+            ByteBufCodecs.VAR_LONG.encode(buf, value.inboundBytesRaw);
+            ByteBufCodecs.VAR_LONG.encode(buf, value.outboundBytesBaked);
+            ByteBufCodecs.VAR_LONG.encode(buf, value.outboundBytesRaw);
+            ByteBufCodecs.DOUBLE.encode(buf, value.inboundSpeedBaked);
+            ByteBufCodecs.DOUBLE.encode(buf, value.inboundSpeedRaw);
+            ByteBufCodecs.DOUBLE.encode(buf, value.outboundSpeedBaked);
+            ByteBufCodecs.DOUBLE.encode(buf, value.outboundSpeedRa);
+        }
+    };
 
-    public StatRespond(long inboundBytesBaked, long inboundBytesRaw, long outboundBytesBaked, long outboundBytesRaw,
-                       double inboundSpeedBaked, double inboundSpeedRaw, double outboundSpeedBaked, double outboundSpeedRaw) {
+    public final long inboundBytesBaked;
+    public final long inboundBytesRaw;
+    public final long outboundBytesBaked;
+    public final long outboundBytesRaw;
+    public final double inboundSpeedBaked;
+    public final double inboundSpeedRaw;
+    public final double outboundSpeedBaked;
+    public final double outboundSpeedRa;
+
+
+    public StatRespond(long inboundBytesBaked, long inboundBytesRaw, long outboundBytesBaked, long outboundBytesRaw, double inboundSpeedBaked, double inboundSpeedRaw, double outboundSpeedBaked, double outboundSpeedRa) {
         this.inboundBytesBaked = inboundBytesBaked;
         this.inboundBytesRaw = inboundBytesRaw;
         this.outboundBytesBaked = outboundBytesBaked;
@@ -34,44 +63,22 @@ public class StatRespond {
         this.inboundSpeedBaked = inboundSpeedBaked;
         this.inboundSpeedRaw = inboundSpeedRaw;
         this.outboundSpeedBaked = outboundSpeedBaked;
-        this.outboundSpeedRaw = outboundSpeedRaw;
+        this.outboundSpeedRa = outboundSpeedRa;
     }
 
-    public StatRespond(FriendlyByteBuf buf) {
-        this.inboundBytesBaked = buf.readVarLong();
-        this.inboundBytesRaw = buf.readVarLong();
-        this.outboundBytesBaked = buf.readVarLong();
-        this.outboundBytesRaw = buf.readVarLong();
-        this.inboundSpeedBaked = buf.readDouble();
-        this.inboundSpeedRaw = buf.readDouble();
-        this.outboundSpeedBaked = buf.readDouble();
-        this.outboundSpeedRaw = buf.readDouble();
+    public void handle(IPayloadContext context) {
+        SimpleStatManager.inboundBytesBakedServer = inboundBytesBaked;
+        SimpleStatManager.inboundBytesRawServer = inboundBytesRaw;
+        SimpleStatManager.outboundBytesBakedServer = outboundBytesBaked;
+        SimpleStatManager.outboundBytesRawServer = outboundBytesRaw;
+        SimpleStatManager.inboundSpeedBakedServer = inboundSpeedBaked;
+        SimpleStatManager.inboundSpeedRawServer = inboundSpeedRaw;
+        SimpleStatManager.outboundSpeedBakedServer = outboundSpeedBaked;
+        SimpleStatManager.outboundSpeedRawServer = outboundSpeedRa;
     }
 
-    public void encode(FriendlyByteBuf buf) {
-        buf.writeVarLong(inboundBytesBaked);
-        buf.writeVarLong(inboundBytesRaw);
-        buf.writeVarLong(outboundBytesBaked);
-        buf.writeVarLong(outboundBytesRaw);
-        buf.writeDouble(inboundSpeedBaked);
-        buf.writeDouble(inboundSpeedRaw);
-        buf.writeDouble(outboundSpeedBaked);
-        buf.writeDouble(outboundSpeedRaw);
-    }
-
-    @OnlyIn(Dist.CLIENT)
-    public void handle(Supplier<NetworkEvent.Context> ctxSupplier) {
-        NetworkEvent.Context ctx = ctxSupplier.get();
-        ctx.enqueueWork(() -> {
-            SimpleStatManager.inboundBytesBakedServer = inboundBytesBaked;
-            SimpleStatManager.inboundBytesRawServer = inboundBytesRaw;
-            SimpleStatManager.outboundBytesBakedServer = outboundBytesBaked;
-            SimpleStatManager.outboundBytesRawServer = outboundBytesRaw;
-            SimpleStatManager.inboundSpeedBakedServer = inboundSpeedBaked;
-            SimpleStatManager.inboundSpeedRawServer = inboundSpeedRaw;
-            SimpleStatManager.outboundSpeedBakedServer = outboundSpeedBaked;
-            SimpleStatManager.outboundSpeedRawServer = outboundSpeedRaw;
-        });
-        ctx.setPacketHandled(true);
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

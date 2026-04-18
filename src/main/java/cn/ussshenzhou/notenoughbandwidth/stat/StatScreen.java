@@ -4,6 +4,7 @@ import cn.ussshenzhou.network.StatQuery;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import static cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager.*;
 
@@ -33,7 +34,7 @@ public class StatScreen extends Screen {
     public void tick() {
         super.tick();
         if (tick % 10 == 0) {
-            cn.ussshenzhou.network.ModNetworkRegistry.QUERY_CHANNEL.sendToServer(new StatQuery());
+            PacketDistributor.sendToServer(new StatQuery());
             actualC = "↓ Inbound  "
                     + getReadableSpeed((int) LOCAL.inboundSpeedBaked().averageIn1s())
                     + "  Total  "
@@ -51,9 +52,10 @@ public class StatScreen extends Screen {
                     + "  Total  "
                     + getReadableSize(LOCAL.outboundBytesRaw().get());
             ratioC = "Ratio                            "
-                    + getRatio(LOCAL.inboundBytesBaked().get(), LOCAL.inboundBytesRaw().get())
-                    + "                                        "
-                    + getRatio(LOCAL.outboundBytesBaked().get(), LOCAL.outboundBytesRaw().get());
+                    + String.format("%.2f", 100d * LOCAL.inboundBytesBaked().get() / LOCAL.inboundBytesRaw().get())
+                    + "%                                        "
+                    + String.format("%.2f", 100d * LOCAL.outboundBytesBaked().get() / LOCAL.outboundBytesRaw().get())
+                    + "%";
 
             actualS = "↓ Inbound  "
                     + getReadableSpeed((int) inboundSpeedBakedServer)
@@ -72,42 +74,61 @@ public class StatScreen extends Screen {
                     + "  Total  "
                     + getReadableSize(outboundBytesRawServer);
             ratioS = "Ratio                            "
-                    + getRatio(inboundBytesBakedServer, inboundBytesRawServer)
-                    + "                                        "
-                    + getRatio(outboundBytesBakedServer, outboundBytesRawServer);
+                    + String.format("%.2f", 100d * inboundBytesBakedServer / inboundBytesRawServer)
+                    + "%                                        "
+                    + String.format("%.2f", 100d * outboundBytesBakedServer / outboundBytesRawServer)
+                    + "%";
+
         }
         tick++;
     }
 
-    private static String getRatio(double baked, double raw) {
-        if (raw <= 0) {
-            return "-";
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float a) {
+        super.render(graphics, mouseX, mouseY, a);
+        graphics.fill(0,0,width,height,0x80000000);
+        var font = this.minecraft.font;
+        graphics.drawString(font, Component.literal(client), 10, 5, 0xFFFFFF);
+        graphics.drawString(font, Component.literal(actual), 10, 30, 0xFFFFFF);
+        graphics.drawString(font, Component.literal(actualC), 10, 40, 0xFFFFFF);
+        graphics.drawString(font, Component.literal(raw), 10, 60, 0xFFFFFF);
+        graphics.drawString(font, Component.literal(rawC), 10, 70, 0xFFFFFF);
+        graphics.drawString(font, Component.literal(ratioC), 10, 90, 0xFFFFFF);
+
+        if (hasSufficientPermissions()) {
+            graphics.drawString(font, Component.literal(server), 10, 120, 0xFFFFFF);
+            graphics.drawString(font, Component.literal(actual), 10, 140, 0xFFFFFF);
+            graphics.drawString(font, Component.literal(actualS), 10, 150, 0xFFFFFF);
+            graphics.drawString(font, Component.literal(raw), 10, 170, 0xFFFFFF);
+            graphics.drawString(font, Component.literal(rawS), 10, 180, 0xFFFFFF);
+            graphics.drawString(font, Component.literal(ratioS), 10, 200, 0xFFFFFF);
         }
-        return String.format("%.2f%%", 100d * baked / raw);
     }
 
-    @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(guiGraphics);
-        guiGraphics.fill(0, 0, this.width, this.height, 0x80000000);
-        guiGraphics.drawString(this.font, client, 10, 10, 0xFFFFFF);
-        guiGraphics.drawString(this.font, actual, 10, 30, 0xFFFFFF);
-        guiGraphics.drawString(this.font, actualC, 10, 40, 0xAAFFAA);
-        guiGraphics.drawString(this.font, raw, 10, 60, 0xFFFFFF);
-        guiGraphics.drawString(this.font, rawC, 10, 70, 0xFFAAAA);
-        guiGraphics.drawString(this.font, ratioC, 10, 90, 0xAAAAFF);
-
-        guiGraphics.drawString(this.font, server, 10, 120, 0xFFFFFF);
-        guiGraphics.drawString(this.font, actual, 10, 140, 0xFFFFFF);
-        guiGraphics.drawString(this.font, actualS, 10, 150, 0xAAFFAA);
-        guiGraphics.drawString(this.font, raw, 10, 170, 0xFFFFFF);
-        guiGraphics.drawString(this.font, rawS, 10, 180, 0xFFAAAA);
-        guiGraphics.drawString(this.font, ratioS, 10, 200, 0xAAAAFF);
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+    private boolean hasSufficientPermissions() {
+        if (this.minecraft.player == null) return false;
+        return this.minecraft.player.hasPermissions(2);
     }
 
-    @Override
-    public boolean isPauseScreen() {
-        return false;
+    private String getReadableSpeed(int bytes) {
+        if (bytes < 1000) {
+            return bytes + " §7Bytes/S§r";
+        } else if (bytes < 1000 * 1000) {
+            return String.format("%.1f §7KiB/S§r", bytes / 1024f);
+        } else {
+            return String.format("%.2f §7MiB/S§r", bytes / (1024 * 1024f));
+        }
+    }
+
+    private String getReadableSize(long bytes) {
+        if (bytes < 1000) {
+            return bytes + " §7Bytes§r";
+        } else if (bytes < 1000 * 1000) {
+            return String.format("%.1f §7KiB§r", bytes / 1024d);
+        } else if (bytes < 1000 * 1000 * 1000) {
+            return String.format("%.2f §7MiB§r", bytes / (1024 * 1024d));
+        } else {
+            return String.format("%.2f §7GiB§r", bytes / (1024 * 1024 * 1024d));
+        }
     }
 }

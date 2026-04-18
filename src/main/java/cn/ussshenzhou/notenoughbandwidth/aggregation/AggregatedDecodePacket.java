@@ -2,185 +2,90 @@ package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
-import net.minecraft.network.Connection;
+import it.unimi.dsi.fastutil.objects.Object2IntArrayMap;
 import net.minecraft.network.ConnectionProtocol;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.PacketListener;
+import net.minecraft.network.ProtocolInfo;
+import net.minecraft.network.codec.IdDispatchCodec;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.PacketFlow;
-import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.PacketType;
+import net.minecraft.network.protocol.common.ClientCommonPacketListener;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.ServerCommonPacketListener;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.RunningOnDifferentThreadException;
-import net.minecraftforge.network.ICustomPacket;
-import net.minecraftforge.network.NetworkEvent;
-import net.minecraftforge.network.NetworkHooks;
-
-import javax.annotation.Nullable;
+import net.neoforged.neoforge.common.extensions.ICommonPacketListener;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.neoforged.neoforge.network.registration.NetworkRegistry;
 
 /**
  * @author USS_Shenzhou
- * Holds a decoded sub-packet entry extracted from an aggregated packet bundle.
- * On handle, dispatches the sub-packet back to its target listener.
  */
-@SuppressWarnings({"rawtypes", "unchecked"})
+@SuppressWarnings({"UnstableApiUsage", "rawtypes", "unchecked"})
 public class AggregatedDecodePacket {
-    private static final org.slf4j.Logger LOGGER = LogUtils.getLogger();
-
-    @Nullable
     private final ResourceLocation type;
-    private final int vanillaPacketId;
     private final ByteBuf data;
+    private static final Object2IntArrayMap<ResourceLocation> VANILLA_TO_ID = new Object2IntArrayMap<>();
+
+    static {
+        VANILLA_TO_ID.defaultReturnValue(-1);
+    }
 
     public AggregatedDecodePacket(ResourceLocation type, ByteBuf data) {
         this.type = type;
-        this.vanillaPacketId = -1;
         this.data = data;
     }
 
-    public AggregatedDecodePacket(int vanillaPacketId, ByteBuf data) {
-        this.type = null;
-        this.vanillaPacketId = vanillaPacketId;
-        this.data = data;
+    /**
+     * @see IdDispatchCodec
+     * @see net.neoforged.neoforge.network.registration.NetworkRegistry#isModdedPayload(CustomPacketPayload)
+     */
+    public void handle(ProtocolInfo<?> protocolInfo, IPayloadContext context) {
+        IdDispatchCodec<ByteBuf, Packet<?>, PacketType> vanillaCodec = (IdDispatchCodec) protocolInfo.codec();
+        updateVanillaIdMap(vanillaCodec);
+        if (handleVanilla(context, vanillaCodec)) {
+            return;
+        }
+        handleCustom(context, vanillaCodec);
     }
 
-    public void handle(NetworkEvent.Context context) {
-        try {
-            Connection connection = context.getNetworkManager();
-            if (connection == null) {
-                LOGGER.error("[NEB] Skipped: no connection for sub-packet {}", type);
-                return;
-            }
-            PacketListener listener = connection.getPacketListener();
-            if (listener == null) {
-                LOGGER.error("[NEB] Skipped: no packet listener for sub-packet {}", type);
-                return;
-            }
-
-            PacketFlow receivingFlow = connection.getReceiving();
-            Packet<?> packet = createVanillaPacket(receivingFlow);
-            if (packet != null) {
-                Packet<?> finalPacket = packet;
-                context.enqueueWork(() -> {
-                    try {
-                        ((Packet<PacketListener>) finalPacket).handle(listener);
-                    } catch (Exception ex) {
-                        LOGGER.error("[NEB] Exception handling vanilla sub-packet {}", type, ex);
-                    }
-                });
-                return;
-            }
-
-            if (dispatchCustomPayload(connection, receivingFlow, listener)) {
-                return;
-            }
-
-            LOGGER.error("[NEB] Skipped: unable to decode aggregated sub-packet {}", type);
-        } catch (Exception e) {
-            LOGGER.error("[NEB] Skipped: Failed to handle sub-packet {}", type, e);
-        }
-    }
-
-    public void replay(Connection connection, PacketFlow flow) {
-        try {
-            if (connection == null) {
-                LOGGER.error("[NEB] Skipped: no connection for replayed sub-packet {}", type);
-                return;
-            }
-            PacketListener listener = connection.getPacketListener();
-            if (listener == null) {
-                LOGGER.error("[NEB] Skipped: no packet listener for replayed sub-packet {}", type);
-                return;
-            }
-            Packet<?> packet = createVanillaPacket(flow);
-            if (packet != null) {
-                try {
-                    ((Packet<PacketListener>) packet).handle(listener);
-                } catch (RunningOnDifferentThreadException ignored) {
-                    return;
-                }
-                return;
-            }
-            if (dispatchCustomPayload(connection, flow, listener)) {
-                return;
-            }
-            LOGGER.error("[NEB] Skipped: unable to replay aggregated sub-packet {}", type);
-        } catch (Exception e) {
-            LOGGER.error("[NEB] Skipped: Failed to replay sub-packet {}", type, e);
-        }
-    }
-
-    public Packet<?> decode(PacketFlow flow) {
-        Packet<?> packet = createVanillaPacket(flow);
-        if (packet != null) {
-            return packet;
-        }
-        return createCustomPayloadPacket(flow);
-    }
-
-    private Packet<?> createVanillaPacket(PacketFlow flow) {
-        if (vanillaPacketId < 0) {
-            return null;
-        }
-        FriendlyByteBuf buf = new FriendlyByteBuf(data.duplicate());
-        try {
-            return ConnectionProtocol.PLAY.createPacket(flow, vanillaPacketId, buf);
-        } catch (Exception e) {
-            LOGGER.debug("[NEB] createVanillaPacket failed for {} / {}: {}", vanillaPacketId, type, e.getMessage());
-            return null;
-        }
-    }
-
-    private Packet<?> createCustomPayloadPacket(PacketFlow flow) {
-        if (type == null) {
-            return null;
-        }
-        FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.ByteBufAllocator.DEFAULT.buffer());
-        try {
-            buf.writeResourceLocation(type);
-            buf.writeBytes(data.duplicate());
-            if (flow == PacketFlow.CLIENTBOUND) {
-                return new ClientboundCustomPayloadPacket(buf);
-            }
-            return new ServerboundCustomPayloadPacket(buf);
-        } catch (Exception e) {
-            LOGGER.debug("[NEB] createCustomPayloadPacket failed for {}: {}", type, e.getMessage());
-            return null;
-        } finally {
-            buf.release();
-        }
-    }
-
-    private boolean dispatchCustomPayload(Connection connection, PacketFlow flow, @Nullable PacketListener listener) {
-        if (type == null) {
+    private boolean handleVanilla(IPayloadContext context, IdDispatchCodec<ByteBuf, Packet<?>, PacketType> vanillaCodec) {
+        var id = VANILLA_TO_ID.getInt(type);
+        if (id == -1) {
             return false;
         }
-        Packet<?> packet = createCustomPayloadPacket(flow);
-        if (!(packet instanceof ICustomPacket<?> customPacket)) {
-            return false;
+        var entry = vanillaCodec.byId.get(id);
+        var codec = (StreamCodec<ByteBuf, Packet<?>>) entry.serializer();
+        var truePacket = (Packet<ICommonPacketListener>) codec.decode(data);
+        context.enqueueWork(() -> truePacket.handle(context.listener()));
+        return true;
+    }
+
+    private void handleCustom(IPayloadContext context, IdDispatchCodec<ByteBuf, Packet<?>, PacketType> vanillaCodec) {
+        var codec = (StreamCodec<ByteBuf, CustomPacketPayload>) NetworkRegistry.getCodec(type, ConnectionProtocol.PLAY, context.flow());
+        if (codec == null) {
+            LogUtils.getLogger().error("Skipped: Failed to handle packet " + type + ", failed to find a codec for it.");
+            return;
         }
         try {
-            if (NetworkHooks.onCustomPayload(customPacket, connection)) {
-                return true;
+            var truePacket = codec.decode(data);
+            if (context.listener() instanceof ServerCommonPacketListener listener) {
+                listener.handleCustomPayload(new ServerboundCustomPayloadPacket(truePacket));
+            } else if (context.listener() instanceof ClientCommonPacketListener listener) {
+                listener.handleCustomPayload(new ClientboundCustomPayloadPacket(truePacket));
             }
-            if (!"minecraft".equals(type.getNamespace())) {
-                LOGGER.debug("[NEB] Forge custom payload dispatch returned false for {}, but namespace is modded; skip vanilla fallback", type);
-                return true;
-            }
-            LOGGER.debug("[NEB] Forge custom payload dispatch returned false for {}, falling back to vanilla custom payload path", type);
-            if (listener != null) {
-                try {
-                    ((Packet<PacketListener>) packet).handle(listener);
-                } catch (RunningOnDifferentThreadException ignored) {
-                    return true;
-                }
-                return true;
-            }
-            return false;
         } catch (Exception e) {
-            LOGGER.error("[NEB] Failed to dispatch Forge custom payload {}", type, e);
-            return false;
+            LogUtils.getLogger().error("Skipped: Failed to handle packet " + type, e);
         }
+    }
+
+    private void updateVanillaIdMap(IdDispatchCodec<ByteBuf, Packet<?>, PacketType> vanillaCodec) {
+        if (vanillaCodec.toId.size() == VANILLA_TO_ID.size()) {
+            return;
+        }
+        VANILLA_TO_ID.clear();
+        vanillaCodec.toId.forEach((t, i) -> VANILLA_TO_ID.put(t.id(), i));
     }
 
     public ByteBuf getData() {

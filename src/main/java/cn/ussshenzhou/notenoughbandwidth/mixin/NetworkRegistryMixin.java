@@ -1,48 +1,41 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
-import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import cn.ussshenzhou.notenoughbandwidth.indextype.NamespaceIndexManager;
-import net.minecraftforge.network.HandshakeHandler;
-import net.minecraftforge.network.HandshakeMessages;
+import com.llamalad7.mixinextras.sugar.Local;
+import net.minecraft.network.ConnectionProtocol;
+import net.minecraft.network.protocol.configuration.ClientConfigurationPacketListener;
+import net.minecraft.network.protocol.configuration.ServerConfigurationPacketListener;
+import net.neoforged.neoforge.network.payload.ModdedNetworkQueryComponent;
+import net.neoforged.neoforge.network.registration.NetworkPayloadSetup;
+import net.neoforged.neoforge.network.registration.NetworkRegistry;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.Set;
+
 /**
  * @author USS_Shenzhou
- * Initialize NEB only after Forge has accepted the negotiated mod channel list,
- * so both sides derive packet indices from the same PLAY channel set.
  */
-@Mixin(HandshakeHandler.class)
+@SuppressWarnings("UnstableApiUsage")
+@Mixin(NetworkRegistry.class)
 public class NetworkRegistryMixin {
 
-    @Inject(method = "handleServerModListOnClient", at = @At("TAIL"), remap = false)
-    private void nebwInitOnAcceptedServerChannelList(
-            HandshakeMessages.S2CModList message,
-            java.util.function.Supplier<net.minecraftforge.network.NetworkEvent.Context> contextSupplier,
-            CallbackInfo ci) {
-        if (!message.getChannels().containsKey(PacketAggregationPacket.TYPE)) {
-            return;
-        }
-        NamespaceIndexManager.initFromNegotiatedChannels(message.getChannels());
-        if (!AggregationManager.isInitialized()) {
-            AggregationManager.init();
-        }
+    // server init
+    @Inject(method = "initializeNeoForgeConnection(Lnet/minecraft/network/protocol/configuration/ServerConfigurationPacketListener;Ljava/util/Map;)V", at = @At("TAIL"))
+    private static void nebwGetAllPacketIdentifier(ServerConfigurationPacketListener listener, Map<ConnectionProtocol, Set<ModdedNetworkQueryComponent>> clientChannels, CallbackInfo ci, @Local(name = "setup") NetworkPayloadSetup setup) {
+        NamespaceIndexManager.init(new ArrayList<>(setup.channels().get(ConnectionProtocol.PLAY).keySet()));
+        AggregationManager.init();
     }
 
-    @Inject(method = "handleClientModListOnServer", at = @At("TAIL"), remap = false)
-    private void nebwInitOnAcceptedClientChannelList(
-            HandshakeMessages.C2SModListReply message,
-            java.util.function.Supplier<net.minecraftforge.network.NetworkEvent.Context> contextSupplier,
-            CallbackInfo ci) {
-        if (!message.getChannels().containsKey(PacketAggregationPacket.TYPE)) {
-            return;
-        }
-        NamespaceIndexManager.initFromNegotiatedChannels(message.getChannels());
-        if (!AggregationManager.isInitialized()) {
-            AggregationManager.init();
-        }
+    // client init
+    @Inject(method = "initializeNeoForgeConnection(Lnet/minecraft/network/protocol/configuration/ClientConfigurationPacketListener;Lnet/neoforged/neoforge/network/registration/NetworkPayloadSetup;)V", at = @At("TAIL"))
+    private static void nebwClientInitialize(ClientConfigurationPacketListener listener, NetworkPayloadSetup setup, CallbackInfo ci) {
+        NamespaceIndexManager.init(new ArrayList<>(setup.channels().get(ConnectionProtocol.PLAY).keySet()));
+        AggregationManager.init();
     }
 }

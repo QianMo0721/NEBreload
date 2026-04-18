@@ -1,123 +1,62 @@
 package cn.ussshenzhou.notenoughbandwidth.indextype;
 
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.VarInt;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 import javax.annotation.Nullable;
+import java.util.List;
 
 /**
- * Instead of vanilla full ResourceLocation identifier in bytebuf,
- * we here use such protocol to avoid putting a huge ResourceLocation into bytebuf.
+ * Instead of vanilla {@link net.minecraft.network.protocol.common.custom.CustomPacketPayload#codec(CustomPacketPayload.FallbackProvider, List, ConnectionProtocol, PacketFlow)},
+ * we here use such protocol to avoid putting a huge Identifier into bytebuf.
  * <p>
- * <h4>Fixed 8 bits header</h4>
- * <pre>
- * ┌------------- 1 byte (8 bits) ---------------┐
- * │               function flags                │
- * ├---┬---┬-------------------------------------┤
- * │ i │ t │      reserved (6 bits)              │
- * └---┴---┴-------------------------------------┘
- *
- * i = indexed (1 bit)
- * t = tight_indexed (1 bit, only valid if i=1)
- * reserved = 6 bits (for future use)
- *
- * </pre>
+ * There is no more 8-bits header after 1.21.1-hmmcm-hotfix-1.0.3 .
  *
  * <h4>Indexed packet type</h4>
  * <pre>
- * - If i=0 (not indexed):
+ * - If not indexed:
  *
- *   ┌---------------- N bytes ----------------
- *   │ ResourceLocation (packet type) in UTF-8
- *   └-----------------------------------------
+ *   ┌--------- 1 byte ----------┐
+ *   ┌--------- 8 bits ----------┬------------ N bytes ----------------
+ *   │             0             │  Identifier (packet type) in UTF-8
+ *   └---------------------------┴-------------------------------------
  *
- * - If i=1 and t=0 (indexed, NOT tight):
+ * - If indexed:
  *
- *   ┌-------- 1 byte ---------┬-------- 1 byte --------┬-------- 1 byte --------┐
- *   ┌------------- 12 bits ---------------┬-------------- 12 bits --------------┐
- *   │    namespace-id (capacity 4096)     │       path-id (capacity 4096)       │
- *   └-------------------------------------┴-------------------------------------┘
- *
- * - If i=1 and t=1 (indexed, tight):
- *
- *   ┌--------- 1 byte ----------┬--------- 1 byte ---------┐
- *   ┌--------- 8 bits ----------┬--------- 8 bits ---------┐
- *   │namespace-id (capacity 256)│  path-id (capacity 256)  │
+ *   ┌--------- X byte ----------┬--------- Y byte ---------┐
+ *   │   namespace-id (var int)  │     path-id (var int)    │
  *   └---------------------------┴--------------------------┘
  *
  * </pre>
  *
- * @author USS_Shenzhou
+ * <h4>Then packet data.</h4>
+ *
+ * @author USS_Shenzhou, nutant233
  */
 public class CustomPacketPrefixHelper {
-    private static final ThreadLocal<CustomPacketPrefixHelper> INSTANCES = ThreadLocal.withInitial(CustomPacketPrefixHelper::new);
-
-    private int prefix = 0;
-    private ResourceLocation type = null;
-    private boolean indexed = false;
-
-    private CustomPacketPrefixHelper() {
-    }
-
-    public static CustomPacketPrefixHelper get() {
-        var instance = INSTANCES.get();
-        instance.prefix = 0;
-        instance.type = null;
-        instance.indexed = false;
-        return instance;
-    }
-
-    public CustomPacketPrefixHelper index(ResourceLocation type) {
-        int index = NamespaceIndexManager.getNebIndex(type);
-        if (index == 0) {
-            this.type = type;
-            return this;
-        }
-        this.type = type;
-        prefix |= index;
-        indexed = true;
-        return this;
-    }
-
-    public boolean isIndexed() {
-        return indexed;
-    }
-
-    public void save(FriendlyByteBuf buf) {
-        if (prefix >>> 31 == 0) {
-            buf.writeByte(prefix >>> 24);
+    public static void write(ResourceLocation type, FriendlyByteBuf buf) {
+        if (NamespaceIndexManager.contains(type)) {
+            var index = NamespaceIndexManager.getCheckedIndex(type);
+            buf.writeVarInt(index.getA());
+            buf.writeVarInt(index.getB());
+        } else {
+            buf.writeByte(0);
             buf.writeResourceLocation(type);
-        }
-        if (prefix >>> 31 == 1) {
-            if ((prefix >>> 30 & 1) == 1) {
-                buf.writeMedium(prefix >>> 8);
-            } else {
-                buf.writeInt(prefix);
-            }
         }
     }
 
     @Nullable
-    public static ResourceLocation getType(FriendlyByteBuf buf) {
-        return read(buf).type();
-    }
-
-    public static DecodedTypeInfo read(FriendlyByteBuf buf) {
-        int fixed = buf.readUnsignedByte() & 0xff;
-        if ((fixed & 0x80) == 0) {
-            return new DecodedTypeInfo(buf.readResourceLocation(), false);
+    public static ResourceLocation read(FriendlyByteBuf buf) {
+        byte firstByte = buf.getByte(buf.readerIndex());
+        if (firstByte == 0) {
+            buf.readVarInt();
+            return buf.readResourceLocation();
         } else {
-            // Header bits:
-            // 10xxxxxx = indexed, not tight  -> remaining payload is 3 bytes
-            // 11xxxxxx = indexed, tight      -> remaining payload is 2 bytes
-            if ((fixed & 0x40) == 0) {
-                return new DecodedTypeInfo(NamespaceIndexManager.getIdentifier(buf.readUnsignedMedium(), false), true);
-            } else {
-                return new DecodedTypeInfo(NamespaceIndexManager.getIdentifier(buf.readUnsignedShort(), true), true);
-            }
+            return NamespaceIndexManager.getIdentifier(buf.readVarInt(), buf.readVarInt());
         }
-    }
-
-    public record DecodedTypeInfo(@Nullable ResourceLocation type, boolean indexed) {
     }
 }

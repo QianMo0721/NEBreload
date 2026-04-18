@@ -1,30 +1,48 @@
 package cn.ussshenzhou.notenoughbandwidth.indextype;
 
 import com.mojang.logging.LogUtils;
+import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.loading.FMLEnvironment;
+import net.minecraft.util.Tuple;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.fml.loading.FMLEnvironment;
+import net.neoforged.neoforge.network.registration.NetworkRegistry;
+import net.neoforged.neoforge.network.registration.PayloadRegistration;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author USS_Shenzhou
  */
+@SuppressWarnings("UnstableApiUsage")
 public class NamespaceIndexManager {
     private static volatile boolean initialized = false;
     private static final ArrayList<String> NAMESPACES = new ArrayList<>();
     private static final ArrayList<ArrayList<String>> PATHS = new ArrayList<>();
     private static final Object2IntMap<String> NAMESPACE_MAP = new Object2IntOpenHashMap<>();
-    private static final HashMap<Integer, Object2IntMap<String>> PATH_MAPS = new HashMap<>();
+    private static final Int2ObjectArrayMap<Object2IntMap<String>> PATH_MAPS = new Int2ObjectArrayMap<>();
+    private static final VarHandle PAYLOAD_REGISTRATIONS;
 
+    static {
+        NAMESPACE_MAP.defaultReturnValue(-1);
+        try {
+            var lookup = MethodHandles.lookup();
+            var privateLookup = MethodHandles.privateLookupIn(NetworkRegistry.class, lookup);
+            PAYLOAD_REGISTRATIONS = privateLookup.findStaticVarHandle(NetworkRegistry.class, "PAYLOAD_REGISTRATIONS", Map.class);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * @see net.minecraft.network.protocol.game.GamePacketTypes
+     */
     private static final List<String> VANILLA_PATHS = new ArrayList<>() {{
         add("bundle");
         add("bundle_delimiter");
@@ -208,22 +226,6 @@ public class NamespaceIndexManager {
         add("set_player_inventory");
     }};
 
-    public static boolean isInitialized() {
-        return initialized;
-    }
-
-    /**
-     * Initialize from the negotiated PLAY channel set of the current connection.
-     * This mirrors the original project's behavior more closely than scanning all
-     * locally registered channels, because only mutually visible channels may be
-     * indexed safely on both sides.
-     */
-    public synchronized static void initFromNegotiatedChannels(java.util.Map<ResourceLocation, String> remoteChannels) {
-        var types = new java.util.ArrayList<ResourceLocation>();
-        types.addAll(collectNegotiatedChannelNames(remoteChannels));
-        init(types);
-    }
-
     public synchronized static void init(List<ResourceLocation> types) {
         if (FMLEnvironment.dist == Dist.DEDICATED_SERVER && initialized) {
             return;
@@ -234,7 +236,11 @@ public class NamespaceIndexManager {
         NAMESPACE_MAP.clear();
         PATH_MAPS.clear();
 
-        AtomicInteger namespaceIndex = new AtomicInteger();
+        // 0 is for un-indexed
+        AtomicInteger namespaceIndex = new AtomicInteger(1);
+        NAMESPACES.add("ILLEGAL");
+        PATHS.add(new ArrayList<>());
+
         indexVanillaPackets(namespaceIndex);
         indexCustomPayloads(types, namespaceIndex);
 
@@ -246,38 +252,19 @@ public class NamespaceIndexManager {
     }
 
     private static void indexVanillaPackets(AtomicInteger namespaceIndex) {
-        VANILLA_PATHS.forEach(path -> fillSingle(namespaceIndex, ResourceLocation.fromNamespaceAndPath("minecraft", path)));
+        VANILLA_PATHS.forEach(path -> fillSingle(namespaceIndex, ResourceLocation.withDefaultNamespace(path)));
     }
 
     private static void indexCustomPayloads(List<ResourceLocation> types, AtomicInteger namespaceIndex) {
-        Set<ResourceLocation> unique = new HashSet<>(types);
-        var sorted = new ArrayList<>(unique);
-        sorted.sort(Comparator.comparing(ResourceLocation::getNamespace).thenComparing(ResourceLocation::getPath));
-        sorted.forEach(type -> fillSingle(namespaceIndex, type));
-    }
-
-    private static List<ResourceLocation> collectNegotiatedChannelNames(java.util.Map<ResourceLocation, String> remoteChannels) {
-        var result = new ArrayList<ResourceLocation>();
-        if (remoteChannels == null || remoteChannels.isEmpty()) {
-            return result;
-        }
-        try {
-            var instancesField = net.minecraftforge.network.NetworkRegistry.class.getDeclaredField("instances");
-            instancesField.setAccessible(true);
-            Object value = instancesField.get(null);
-            if (value instanceof java.util.Map<?, ?> map) {
-                for (Object key : map.keySet()) {
-                    if (key instanceof ResourceLocation rl
-                            && remoteChannels.containsKey(rl)
-                            && !"fml".equals(rl.getNamespace())) {
-                        result.add(rl);
-                    }
-                }
+        types.sort(Comparator.comparing(ResourceLocation::getNamespace).thenComparing(ResourceLocation::getPath));
+        @SuppressWarnings("unchecked")
+        var registration = ((Map<ConnectionProtocol, Map<ResourceLocation, PayloadRegistration<?>>>) PAYLOAD_REGISTRATIONS.get()).get(ConnectionProtocol.PLAY);
+        types.forEach(type -> {
+            if (!registration.containsKey(type) || registration.get(type).optional()) {
+                return;
             }
-        } catch (Exception e) {
-            LogUtils.getLogger().debug("Failed to collect negotiated Forge channel names for NamespaceIndexManager", e);
-        }
-        return result;
+            fillSingle(namespaceIndex, type);
+        });
     }
 
     private static void initTrace() {
@@ -298,64 +285,39 @@ public class NamespaceIndexManager {
             PATHS.add(new ArrayList<>());
             namespaceIndex.getAndIncrement();
         }
-        int namespaceId = NAMESPACE_MAP.getInt(packetId.getNamespace());
-        PATH_MAPS.compute(namespaceId, (namespaceId1, pathMap) -> {
+        PATH_MAPS.compute(namespaceIndex.get() - 1, (namespaceId1, pathMap) -> {
             if (pathMap == null) {
                 pathMap = new Object2IntOpenHashMap<>();
             }
-            if (!pathMap.containsKey(packetId.getPath())) {
-                pathMap.put(packetId.getPath(), pathMap.size());
-                PATHS.get(namespaceId).add(packetId.getPath());
-            }
+            pathMap.put(packetId.getPath(), pathMap.size());
             return pathMap;
         });
+        PATHS.get(namespaceIndex.get() - 1).add(packetId.getPath());
     }
 
-    private static boolean contains(ResourceLocation type) {
+    public static boolean contains(ResourceLocation type) {
         if (!initialized) {
             return false;
         }
         return NAMESPACE_MAP.containsKey(type.getNamespace()) && PATH_MAPS.get(NAMESPACE_MAP.getInt(type.getNamespace())).containsKey(type.getPath());
     }
 
-    public static boolean canAggregate(ResourceLocation type) {
-        return type != null && contains(type);
+    public static Tuple<Integer, Integer> getCheckedIndex(ResourceLocation type) {
+        int namespaceId = NAMESPACE_MAP.getInt(type.getNamespace());
+        return new Tuple<>(namespaceId, PATH_MAPS.get(namespaceId).getInt(type.getPath()));
     }
 
-    public static int getNebIndex(ResourceLocation type) {
-        if (initialized && contains(type)) {
-            int namespaceIndex = NAMESPACE_MAP.getInt(type.getNamespace());
-            int pathIndex = PATH_MAPS.get(namespaceIndex).getInt(type.getPath());
-            if (namespaceIndex < 256 && pathIndex < 256) {
-                return 0xc0000000 | (namespaceIndex << 16) | (pathIndex << 8);
-            } else {
-                return 0x80000000 | (namespaceIndex << 12) | (pathIndex);
-            }
-        }
-        return 0;
-    }
-
-    public static int getNebIndexNotTight(ResourceLocation type) {
-        if (initialized && contains(type)) {
-            int namespaceIndex = NAMESPACE_MAP.getInt(type.getNamespace());
-            int pathIndex = PATH_MAPS.get(namespaceIndex).getInt(type.getPath());
-            return 0x80000000 | (namespaceIndex << 12) | (pathIndex);
-        }
-        return 0;
-    }
-
-    public static ResourceLocation getIdentifier(int nebIndex, boolean tight) {
+    public static ResourceLocation getIdentifier(int namespaceIndex, int pathIndex) {
         if (!initialized) {
             return null;
         }
-        int namespaceIndex, pathIndex;
-        if (tight) {
-            namespaceIndex = (nebIndex & 0b11111111_00000000) >>> 8;
-            pathIndex = (nebIndex & 0b00000000_11111111);
-        } else {
-            namespaceIndex = (nebIndex & 0b11111111_11110000_00000000) >>> 12;
-            pathIndex = (nebIndex & 0b00000000_00001111_11111111);
+        if (namespaceIndex == 0){
+            throw new UnsupportedOperationException("namespaceIndex should not be 0");
         }
         return ResourceLocation.fromNamespaceAndPath(NAMESPACES.get(namespaceIndex), PATHS.get(namespaceIndex).get(pathIndex));
+    }
+
+    public static boolean ready() {
+        return initialized;
     }
 }

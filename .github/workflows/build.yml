@@ -21,11 +21,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Temurin JDK 17
+      - name: Set up Temurin JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
           cache: gradle
 
       - name: Ensure Gradle wrapper is executable
@@ -68,7 +68,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nebl-build
+          name: build
           path: |
             ${{ env.RELEASE_JAR }}
             changelog.txt

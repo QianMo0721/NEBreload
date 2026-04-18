@@ -1,133 +1,221 @@
 package cn.ussshenzhou.notenoughbandwidth.chunk;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
+import cn.ussshenzhou.notenoughbandwidth.config.ConfigHelper;
 import com.mojang.logging.LogUtils;
-import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
+import it.unimi.dsi.fastutil.longs.Long2LongLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2LongMap;
+import it.unimi.dsi.fastutil.longs.Long2LongMaps;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
+import net.minecraft.network.protocol.game.ClientboundSetChunkCacheCenterPacket;
+import net.minecraft.server.level.ChunkTrackingView;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
+import org.intellij.lang.annotations.MagicConstant;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 
-import java.util.WeakHashMap;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * Forge 1.20.1 adaptation of delayed chunk caching.
+ * A {@link ChunkTrackingView} implementation that adds a lightweight,
+ * time-based cache on top of a primary ("major") tracking view.
  *
- * <p>Unlike the original project, 1.20.1 does not expose
- * `ChunkTrackingView`, so this class only keeps the cache state and lets
- * `ChunkMapMixin` continue using vanilla's original range-diff loops.</p>
+ * <p>This cache is used to temporarily retain chunks that have recently
+ * left the major view, in order to reduce frequent enter/leave churn when
+ * the player moves near view boundaries.</p>
+ *
+ * <p>A cached chunk will be evicted if <strong>any</strong> of the following
+ * conditions is met:</p>
+ * <ul>
+ *   <li>It has not been within the major view boundary for a configured
+ *       amount of time (timeout).</li>
+ *   <li>It is farther than the allowed cache distance from the current
+ *       view center.</li>
+ *   <li>The cache exceeds the configured size limit, in which case the
+ *       oldest cached chunks are removed first.</li>
+ * </ul>
  */
-public class CachedChunkTrackingView {
-    private static final long NO_CACHE = -1L;
+public class CachedChunkTrackingView implements ChunkTrackingView {
+    private static final long NO_CACHE = -1;
+
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    private static final WeakHashMap<ServerPlayer, CachedChunkTrackingView> PLAYER_CACHE_VIEWS = new WeakHashMap<>();
+    /**
+     * The primary {@link ChunkTrackingView.Positioned} that represents
+     * the authoritative chunk visibility range.
+     *
+     * <p>All chunks contained in this view are considered visible regardless
+     * of the cache state.</p>
+     */
+    private ChunkTrackingView.Positioned major;
 
-    private final Long2ObjectLinkedOpenHashMap<CacheEntry> cache = new Long2ObjectLinkedOpenHashMap<>();
+    /**
+     * A cache mapping packed {@link ChunkPos} values to the timestamp (in millis)
+     * when they were last visible.
+     *
+     * <p>The map preserves insertion order, allowing efficient eviction of
+     * the oldest cached entries when size or timeout constraints are exceeded.</p>
+     *
+     * <p>The default return value is {@link #NO_CACHE}, allowing fast
+     * existence checks without boxing.</p>
+     *
+     * <p><b>Note:</b> This could potentially be replaced by a value-record
+     * representation once Project Valhalla becomes available.</p>
+     */
+    private final Long2LongLinkedOpenHashMap cache = new Long2LongLinkedOpenHashMap();
 
-    private CachedChunkTrackingView() {
-        cache.defaultReturnValue(null);
+    public CachedChunkTrackingView(ChunkTrackingView.Positioned major) {
+        this.major = major;
+        cache.defaultReturnValue(NO_CACHE);
     }
 
-    private static CachedChunkTrackingView get(ServerPlayer player) {
-        return PLAYER_CACHE_VIEWS.computeIfAbsent(player, ignored -> new CachedChunkTrackingView());
+    @Override
+    public boolean contains(int x, int z, boolean includeNeighbors) {
+        // FIXME: Investigate how 'includeNeighbors' will affect the check.
+        return major.contains(x, z, includeNeighbors) || cache.containsKey(ChunkPos.asLong(x, z));
     }
 
-    public static int onChunkEnter(ServerPlayer player, ChunkPos pos) {
-        CachedChunkTrackingView cachedView = PLAYER_CACHE_VIEWS.get(player);
-        if (cachedView == null) {
-            return -1;
-        }
+    @Override
+    public void forEach(@NotNull Consumer<ChunkPos> consumer) {
+        major.forEach(consumer);
 
-        long packed = pos.toLong();
-        CacheEntry hit = cachedView.cache.remove(packed);
-        if (hit == null) {
-            return -1;
+        LongIterator cache = this.cache.keySet().iterator();
+        while (cache.hasNext()) {
+            long packed = cache.nextLong();
+            consumer.accept(new ChunkPos(packed));
         }
-
-        LOGGER.trace("Cache hit at {} in {}'s chunk cache.", pos, player.getGameProfile().getName());
-        return hit.estimatedBodySize();
     }
 
-    public static boolean onChunkLeave(ServerPlayer player, ChunkPos pos, ChunkPos currentCenter, int estimatedBodySize) {
-        var cfg = NotEnoughBandwidthLegacyConfig.get();
-        int chunkCacheDistance = cfg.getDccDistanceSafe();
-        if (!cfg.isDelayedChunkCachingUsable()) {
-            return false;
-        }
-        if (chessboardDist(currentCenter, pos) > chunkCacheDistance) {
-            return false;
-        }
+    public interface Context {
+        void startChunkTracking(ChunkPos pos);
 
-        CachedChunkTrackingView cachedView = get(player);
-        cachedView.cache.putAndMoveToLast(pos.toLong(), new CacheEntry(System.currentTimeMillis(), Math.max(0, estimatedBodySize)));
-        LOGGER.trace("Caching {} in {}'s chunk cache.", pos, player.getGameProfile().getName());
-        return true;
+        void stopChunkTracking(ChunkPos pos);
+
+        void putTicket(ChunkPos pos, int ticks);
     }
 
-    public static void tick(ServerPlayer player, ChunkPos currentCenter, Consumer<ChunkPos> stopChunkTracking) {
-        CachedChunkTrackingView cachedView = PLAYER_CACHE_VIEWS.get(player);
-        if (cachedView == null) {
-            return;
+    /**
+     * Updates the chunk tracking view for a player, applying cached tracking
+     * semantics when possible.
+     *
+     * <p>If the player's view center or view distance changes, a new
+     * {@link ChunkTrackingView.Positioned} is created and synchronized to
+     * the client.</p>
+     *
+     * <p>If the current tracking view already supports caching, it will be
+     * updated in-place; otherwise, a new {@link CachedChunkTrackingView} is
+     * created and installed.</p>
+     *
+     * @param player             the player whose chunk tracking is being updated
+     * @param playerViewDistance the player's view distance
+     */
+    public static void onUpdateChunkTracking(ServerPlayer player, int playerViewDistance, Context context) {
+        ChunkTrackingView currentTrackingView = player.getChunkTrackingView();
+        ChunkPos playerChunkPosition = player.chunkPosition();
+
+        // Compute new ChunkTrackingView.Positioned instance and sync it to client if necessary.
+        ChunkTrackingView.Positioned nextPositioned = null;
+        ChunkTrackingView.Positioned lastPositioned = switch (currentTrackingView) {
+            case CachedChunkTrackingView cachedView -> cachedView.major;
+            case ChunkTrackingView.Positioned p -> p;
+            default -> null;
+        };
+        if (lastPositioned == null || !lastPositioned.center().equals(playerChunkPosition) || lastPositioned.viewDistance() != playerViewDistance) {
+            nextPositioned = new ChunkTrackingView.Positioned(playerChunkPosition, playerViewDistance);
+            player.connection.send(new ClientboundSetChunkCacheCenterPacket(playerChunkPosition.x, playerChunkPosition.z));
         }
 
-        var cfg = NotEnoughBandwidthLegacyConfig.get();
+        // Use an in-place tick operation on CachedChunkTrackingView if possible, otherwise, create a new CachedChunkTrackingView.
+        if (currentTrackingView instanceof CachedChunkTrackingView cachedView) {
+            cachedView.tick(player, Objects.requireNonNullElse(nextPositioned, cachedView.major), context);
+        } else if (nextPositioned != null) {
+            CachedChunkTrackingView cachedView = new CachedChunkTrackingView(nextPositioned);
+            ChunkTrackingView.difference(currentTrackingView, cachedView, context::startChunkTracking, context::stopChunkTracking);
+
+            player.setChunkTrackingView(cachedView);
+        }
+    }
+
+    private void tick(ServerPlayer player, ChunkTrackingView.Positioned next, Context context) {
         long now = System.currentTimeMillis();
-        int chunkCacheDistance = cfg.getDccDistanceSafe();
-        int chunkCacheBufferSize = cfg.getDccSizeLimitSafe();
-        long timeoutMs = TimeUnit.SECONDS.toMillis(cfg.getDccTimeoutSafeSeconds());
+        var cfg = ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class);
+        int chunkCacheBufferSize = cfg.dccSizeLimit;
+        int chunkCacheDistance = cfg.dccDistance;
+        int chunkCacheTimeout = cfg.dccTimeout;
+        boolean isDebug = cfg.debugLog;
+        long chunkCacheTimeoutMilli = TimeUnit.SECONDS.toMillis(chunkCacheTimeout);
+        if (!major.equals(next)) {
+            // Update chunk tracking view.
+            // 1. For newly-visible chunks,
+            //    1) If they're inside cache view, remove them from cache view as it will be in major view.
+            //    2) If not, call onEnter.
+            // 2. For newly-invisible chunks, if they are within cache distance, push them into cache.
+            ChunkTrackingView.difference(major, next, chunkPos -> {
+                if (cache.remove(chunkPos.toLong()) == NO_CACHE) {
+                    context.startChunkTracking(chunkPos);
+                    if (isDebug) LOGGER.debug("Cache miss at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
+                } else {
+                    if (isDebug) LOGGER.debug("Cache hit at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
+                }
+            }, chunkPos -> {
+                if (next.center().getChessboardDistance(chunkPos) <= chunkCacheDistance) {
+                    context.putTicket(player.chunkPosition(), chunkCacheTimeout * 20 /* FIXME: /tick wrap will break this! */);
+                    cache.put(chunkPos.toLong(), now);
+                }
+            });
 
-        ObjectIterator<Long2ObjectMap.Entry<CacheEntry>> it = Long2ObjectMaps.fastIterator(cachedView.cache);
-        while (it.hasNext()) {
-            Long2ObjectMap.Entry<CacheEntry> entry = it.next();
-            ChunkPos chunkPos = new ChunkPos(ChunkPos.getX(entry.getLongKey()), ChunkPos.getZ(entry.getLongKey()));
+            // Remove all chunks that are too far from users.
+            enumerate((pos, time) -> {
+                if (next.center().getChessboardDistance(ChunkPos.getX(pos), ChunkPos.getZ(pos)) > chunkCacheDistance) {
+                    ChunkPos chunkPos = new ChunkPos(pos);
+                    context.stopChunkTracking(chunkPos);
+                    if (isDebug) LOGGER.debug("Remove {} from {}'s chunk cache: too far away.", chunkPos, player.getGameProfile().getName());
+                    return CacheConsumer.REMOVE;
+                }
+                return CacheConsumer.CONTINUE;
+            });
+        }
 
-            if (chessboardDist(currentCenter, chunkPos) > chunkCacheDistance) {
-                it.remove();
-                stopChunkTracking.accept(chunkPos);
-                LOGGER.trace("Remove {} from {}'s chunk cache: too far away.", chunkPos, player.getGameProfile().getName());
-                continue;
+        // Remove legacy cache.
+        enumerate((pos, time) -> {
+            boolean legacy = time <= now - chunkCacheTimeoutMilli;
+            if (legacy || cache.size() >= chunkCacheBufferSize) {
+                ChunkPos chunkPos = new ChunkPos(pos);
+                context.stopChunkTracking(chunkPos);
+                if (isDebug) LOGGER.debug("Remove {} from {}'s chunk cache: {}", chunkPos, player.getGameProfile().getName(), legacy ? "timeout" : "buffer is full");
+                return CacheConsumer.REMOVE;
+            } else {
+                return CacheConsumer.STOP;
             }
+        });
 
-            if (now - entry.getValue().cachedAtMs() > timeoutMs) {
-                it.remove();
-                stopChunkTracking.accept(chunkPos);
-                LOGGER.trace("Remove {} from {}'s chunk cache: timeout.", chunkPos, player.getGameProfile().getName());
+        major = next;
+    }
+
+    @FunctionalInterface
+    private interface CacheConsumer {
+        byte CONTINUE = 0, REMOVE = 1, STOP = 2;
+
+        @MagicConstant(flags = {CONTINUE, REMOVE, STOP})
+        byte accept(long pos, long time);
+    }
+
+    private void enumerate(CacheConsumer consumer) {
+        ObjectIterator<Long2LongMap.Entry> iterator = Long2LongMaps.fastIterator(cache);
+        while (iterator.hasNext()) {
+            Long2LongMap.Entry entry = iterator.next();
+
+            byte v = consumer.accept(entry.getLongKey(), entry.getLongValue());
+            if ((v & CacheConsumer.REMOVE) != 0) {
+                iterator.remove();
+            }
+            if ((v & CacheConsumer.STOP) != 0) {
+                return;
             }
         }
-
-        while (cachedView.cache.size() > chunkCacheBufferSize) {
-            long pos = cachedView.cache.firstLongKey();
-            cachedView.cache.remove(pos);
-            ChunkPos chunkPos = new ChunkPos(ChunkPos.getX(pos), ChunkPos.getZ(pos));
-            stopChunkTracking.accept(chunkPos);
-            LOGGER.trace("Remove {} from {}'s chunk cache: buffer is full.", chunkPos, player.getGameProfile().getName());
-        }
-    }
-
-    public static void clear(ServerPlayer player, Consumer<ChunkPos> stopChunkTracking) {
-        CachedChunkTrackingView cachedView = PLAYER_CACHE_VIEWS.remove(player);
-        if (cachedView == null) {
-            return;
-        }
-
-        ObjectIterator<Long2ObjectMap.Entry<CacheEntry>> it = Long2ObjectMaps.fastIterator(cachedView.cache);
-        while (it.hasNext()) {
-            Long2ObjectMap.Entry<CacheEntry> entry = it.next();
-            ChunkPos chunkPos = new ChunkPos(ChunkPos.getX(entry.getLongKey()), ChunkPos.getZ(entry.getLongKey()));
-            stopChunkTracking.accept(chunkPos);
-        }
-        cachedView.cache.clear();
-    }
-
-    private static int chessboardDist(ChunkPos a, ChunkPos b) {
-        return Math.max(Math.abs(a.x - b.x), Math.abs(a.z - b.z));
-    }
-
-    private record CacheEntry(long cachedAtMs, int estimatedBodySize) {
     }
 }

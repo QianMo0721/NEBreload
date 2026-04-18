@@ -3,11 +3,11 @@ package cn.ussshenzhou.notenoughbandwidth.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
+import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.CompletableFuture;
@@ -21,11 +21,11 @@ public class ConfigHelper {
     private static final File CONFIG_DIR = Paths.get("config").toFile();
     private static final ConcurrentHashMap<Class<? extends TConfig>, TConfig> CACHE = new ConcurrentHashMap<>();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
-    private static final File UNIVERSAL_CONFIG_DIR = Path.of(System.getProperty("user.home"), "MinecraftT88Config").toFile();
+    private static final File UNIVERSAL_CONFIG_DIR = FileUtils.getUserDirectory().toPath().resolve("MinecraftT88Config").toFile();
 
     private static void checkDir(File dir) {
         if (!dir.isDirectory()) {
-            dir.mkdirs();
+            dir.mkdir();
         }
     }
 
@@ -59,38 +59,26 @@ public class ConfigHelper {
         saveConfigInternal(config, configFile);
     }
 
-    protected static void loadConfigInternal(TConfig newInstance, File configFile) {
-        Class<? extends TConfig> configClass = newInstance.getClass();
-        if (configFile.exists()) {
-            try {
-                String json = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
-                TConfig loaded = GSON.fromJson(json, configClass);
-                if (loaded == null) {
-                    loaded = newInstance;
-                }
-                CACHE.put(configClass, loaded);
-                saveConfigInternal(loaded, configFile);
-            } catch (Exception e) {
-                LogUtils.getLogger().error("Failed to read config file: " + configFile, e);
-                CACHE.put(configClass, newInstance);
+    private static void loadConfigInternal(TConfig newInstance, File configFile) {
+        try {
+            if (configFile.isFile()) {
+                newInstance = GSON.fromJson(FileUtils.readFileToString(configFile, StandardCharsets.UTF_8), newInstance.getClass());
+            } else {
+                FileUtils.write(configFile, GSON.toJson(newInstance), StandardCharsets.UTF_8);
             }
-        } else {
-            CACHE.put(configClass, newInstance);
+            CACHE.put(newInstance.getClass(), newInstance);
             saveConfigInternal(newInstance, configFile);
+        } catch (IOException ignored) {
+            LogUtils.getLogger().error("Failed to load config {}. Things may not work well.", newInstance.getClass());
         }
     }
 
-    protected static void saveConfigInternal(TConfig config, File configFile) {
+    private static <T extends TConfig> void saveConfigInternal(T config, File configFile) {
         CompletableFuture.runAsync(() -> {
             try {
-                Path parent = configFile.toPath().getParent();
-                if (parent != null) {
-                    Files.createDirectories(parent);
-                }
-                String json = GSON.toJson(config);
-                Files.writeString(configFile.toPath(), json, StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                LogUtils.getLogger().error("Failed to write config file: " + configFile, e);
+                FileUtils.write(configFile, GSON.toJson(config), StandardCharsets.UTF_8);
+            } catch (IOException ignored) {
+                LogUtils.getLogger().error("Failed to save config {}. Things may not work well.", config.getClass());
             }
         });
     }
