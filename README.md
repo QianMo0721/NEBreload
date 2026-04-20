@@ -1,4 +1,6 @@
 # 网络包优化 | Not Enough Bandwidth Legacy(NEBL)
+这是 [NEB](https://github.com/USS-Shenzhou/NotEnoughBandwidth) 的反向移植分支，出现的任何问题，请勿提交 issue 到上游的原作者仓库，谢谢理解！
+![icon](src/main/resources/icon-enbl.png)
 
 ## 简介 | Introduction
 
@@ -101,9 +103,9 @@ In Vanilla, when a player moves, the server instructs the client to immediately 
 
 ## 配置 | Config
 
-在`config/NotEnoughBandwidthConfig.json`修改配置文件。
+在`config/NotEnoughBandwidthLegacyConfig.json`修改配置文件。
 
-Modify the configuration file at `config/NotEnoughBandwidthConfig.json`.
+Modify the configuration file at `config/NotEnoughBandwidthLegacyConfig.json`.
 
 ### compatibleMode
 

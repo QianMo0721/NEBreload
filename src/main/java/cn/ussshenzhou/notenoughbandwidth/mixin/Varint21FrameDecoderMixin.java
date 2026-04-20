@@ -14,12 +14,12 @@ import org.spongepowered.asm.mixin.injection.*;
 @Mixin(Varint21FrameDecoder.class)
 public class Varint21FrameDecoderMixin {
 
-    @ModifyConstant(method = "<init>", constant = @Constant(intValue = 3))
+    @ModifyConstant(method = "<init>", constant = @Constant(intValue = 3), require = 0)
     private int nebAllowBiggerPacket0(int constant) {
         return 4;
     }
 
-    @ModifyConstant(method = "copyVarint", constant = @Constant(intValue = 3))
+    @ModifyConstant(method = "copyVarint", constant = @Constant(intValue = 3), require = 0)
     private static int nebAllowBiggerPacket1(int constant) {
         return 4;
     }
