@@ -1,7 +1,9 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
+import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import cn.ussshenzhou.notenoughbandwidth.util.EncodedTrafficStatHelper;
+import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import net.minecraft.network.PacketEncoder;
@@ -20,10 +22,15 @@ public class PacketEncoderMixin {
 
     @Inject(method = "encode(Lio/netty/channel/ChannelHandlerContext;Lnet/minecraft/network/protocol/Packet;Lio/netty/buffer/ByteBuf;)V",
             at = @At(value = "TAIL"))
-    private void nebRecordOut(ChannelHandlerContext ctx, Packet packet, ByteBuf output, CallbackInfo ci) {
+    private void nebRecordOutboundTraffic(ChannelHandlerContext ctx, Packet packet, ByteBuf output, CallbackInfo ci) {
         int bakedSize = output.readableBytes();
-        int rawSize = EncodedTrafficStatHelper.estimateRawPacketSize(packet, output);
         SimpleStatManager.outBaked(bakedSize);
+        int rawSize;
+        if (PacketUtil.getTruePacket(packet) instanceof PacketAggregationPacket aggregationPacket) {
+            rawSize = Math.max(0, bakedSize - aggregationPacket.getBakedSize());
+        } else {
+            rawSize = EncodedTrafficStatHelper.estimateRawPacketSize(packet, output);
+        }
         SimpleStatManager.outRaw(rawSize);
     }
 }

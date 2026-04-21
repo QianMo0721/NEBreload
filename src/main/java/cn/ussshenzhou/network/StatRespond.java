@@ -1,20 +1,30 @@
 package cn.ussshenzhou.network;
 
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadCodec;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadContext;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.api.distmarker.OnlyIn;
-import net.minecraftforge.network.NetworkEvent;
-
-import java.util.function.Supplier;
 
 /**
  * @author USS_Shenzhou
  */
-public class StatRespond {
+public class StatRespond implements NebPayload {
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_resp");
+    public static final StatRespond SAMPLE = new StatRespond(0, 0, 0, 0, 0, 0, 0, 0);
+    public static final PayloadCodec<StatRespond> CODEC = new PayloadCodec<>() {
+        @Override
+        public void encode(FriendlyByteBuf buf, StatRespond value) {
+            value.encode(buf);
+        }
+
+        @Override
+        public StatRespond decode(FriendlyByteBuf buf) {
+            return new StatRespond(buf);
+        }
+    };
 
     private final long inboundBytesBaked;
     private final long inboundBytesRaw;
@@ -59,10 +69,8 @@ public class StatRespond {
         buf.writeDouble(outboundSpeedRaw);
     }
 
-    @OnlyIn(Dist.CLIENT)
-    public void handle(Supplier<NetworkEvent.Context> ctxSupplier) {
-        NetworkEvent.Context ctx = ctxSupplier.get();
-        ctx.enqueueWork(() -> {
+    public void handle(PayloadContext context) {
+        context.enqueueWork(() -> {
             SimpleStatManager.inboundBytesBakedServer = inboundBytesBaked;
             SimpleStatManager.inboundBytesRawServer = inboundBytesRaw;
             SimpleStatManager.outboundBytesBakedServer = outboundBytesBaked;
@@ -72,6 +80,10 @@ public class StatRespond {
             SimpleStatManager.outboundSpeedBakedServer = outboundSpeedBaked;
             SimpleStatManager.outboundSpeedRawServer = outboundSpeedRaw;
         });
-        ctx.setPacketHandled(true);
+    }
+
+    @Override
+    public ResourceLocation type() {
+        return TYPE;
     }
 }

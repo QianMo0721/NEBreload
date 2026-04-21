@@ -17,40 +17,39 @@ import org.apache.commons.lang3.mutable.MutableObject;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author USS_Shenzhou
+ * 移植者吐槽:怎么老被重指向炸啊!!!
  */
 @Mixin(ChunkMap.class)
 public abstract class ChunkMapMixin {
-    @Shadow
-    @Final
-    ServerLevel level;
+    @Unique
+    private static volatile Field neb$levelField;
 
-    @Shadow
-    public abstract DistanceManager getDistanceManager();
+    @Unique
+    private static volatile Field neb$viewDistanceField;
 
-    @Shadow
-    int viewDistance;
+    @Unique
+    private static volatile Field neb$updatingChunkMapField;
 
-    @Shadow
-    @Final
-    private it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<ChunkHolder> updatingChunkMap;
+    @Unique
+    private static volatile Field neb$distanceManagerField;
 
-    @Shadow
-    public abstract java.util.List<ServerPlayer> getPlayers(ChunkPos pos, boolean boundaryOnly);
+    @Unique
+    private static volatile Method neb$getPlayersMethod;
+
+    @Unique
+    private static volatile Method neb$updateChunkTrackingMethod;
 
     @Unique
     private static final Map<Integer, TicketType<Integer>> NEB_CACHE_TICKETS = new ConcurrentHashMap<>();
-    @Unique
-    private static final ThreadLocal<Boolean> NEB_INTERNAL_TRACKING = ThreadLocal.withInitial(() -> false);
-    @Unique
-    private static final ThreadLocal<Boolean> NEB_UPDATE_PLAYER_STATUS_ADDED = new ThreadLocal<>();
 
     @Unique
     private static TicketType<Integer> getCacheTicketType(int ticks) {
@@ -69,83 +68,279 @@ public abstract class ChunkMapMixin {
     }
 
     @Unique
+    private ServerLevel nebLevel() {
+        try {
+            Field field = neb$levelField;
+            if (field == null) {
+                try {
+                    field = ChunkMap.class.getDeclaredField("level");
+                } catch (NoSuchFieldException ignored) {
+                    field = ChunkMap.class.getDeclaredField("f_140133_");
+                }
+                field.setAccessible(true);
+                neb$levelField = field;
+            }
+            return (ServerLevel) field.get(this);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to resolve ChunkMap level field", e);
+        }
+    }
+
+    @Unique
+    private int nebViewDistance() {
+        try {
+            Field field = neb$viewDistanceField;
+            if (field == null) {
+                try {
+                    field = ChunkMap.class.getDeclaredField("viewDistance");
+                } catch (NoSuchFieldException ignored) {
+                    field = ChunkMap.class.getDeclaredField("f_140126_");
+                }
+                field.setAccessible(true);
+                neb$viewDistanceField = field;
+            }
+            return field.getInt(this);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to resolve ChunkMap viewDistance field", e);
+        }
+    }
+
+    @Unique
+    private void nebSetViewDistance(int viewDistance) {
+        try {
+            Field field = neb$viewDistanceField;
+            if (field == null) {
+                try {
+                    field = ChunkMap.class.getDeclaredField("viewDistance");
+                } catch (NoSuchFieldException ignored) {
+                    field = ChunkMap.class.getDeclaredField("f_140126_");
+                }
+                field.setAccessible(true);
+                neb$viewDistanceField = field;
+            }
+            field.setInt(this, viewDistance);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to update ChunkMap viewDistance field", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Unique
+    private it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<ChunkHolder> nebUpdatingChunkMap() {
+        try {
+            Field field = neb$updatingChunkMapField;
+            if (field == null) {
+                try {
+                    field = ChunkMap.class.getDeclaredField("updatingChunkMap");
+                } catch (NoSuchFieldException ignored) {
+                    field = ChunkMap.class.getDeclaredField("f_140129_");
+                }
+                field.setAccessible(true);
+                neb$updatingChunkMapField = field;
+            }
+            return (it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<ChunkHolder>) field.get(this);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to resolve ChunkMap updatingChunkMap field", e);
+        }
+    }
+
+    @Unique
+    private DistanceManager nebDistanceManager() {
+        try {
+            Field field = neb$distanceManagerField;
+            if (field == null) {
+                try {
+                    field = ChunkMap.class.getDeclaredField("distanceManager");
+                } catch (NoSuchFieldException ignored) {
+                    field = ChunkMap.class.getDeclaredField("f_140145_");
+                }
+                field.setAccessible(true);
+                neb$distanceManagerField = field;
+            }
+            return (DistanceManager) field.get(this);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to resolve ChunkMap distanceManager field", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Unique
+    private java.util.List<ServerPlayer> nebGetPlayers(ChunkPos pos, boolean boundaryOnly) {
+        try {
+            Method method = neb$getPlayersMethod;
+            if (method == null) {
+                try {
+                    method = ChunkMap.class.getDeclaredMethod("getPlayers", ChunkPos.class, boolean.class);
+                } catch (NoSuchMethodException ignored) {
+                    method = ChunkMap.class.getDeclaredMethod("m_183262_", ChunkPos.class, boolean.class);
+                }
+                method.setAccessible(true);
+                neb$getPlayersMethod = method;
+            }
+            return (java.util.List<ServerPlayer>) method.invoke(this, pos, boundaryOnly);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to resolve ChunkMap getPlayers method", e);
+        }
+    }
+
+    @Unique
+    private void nebInvokeUpdateChunkTracking(
+            ServerPlayer player,
+            ChunkPos pos,
+            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
+            boolean wasInRange,
+            boolean isInRange
+    ) {
+        try {
+            Method method = neb$updateChunkTrackingMethod;
+            if (method == null) {
+                try {
+                    method = ChunkMap.class.getDeclaredMethod(
+                            "updateChunkTracking",
+                            ServerPlayer.class,
+                            ChunkPos.class,
+                            MutableObject.class,
+                            boolean.class,
+                            boolean.class
+                    );
+                } catch (NoSuchMethodException ignored) {
+                    method = ChunkMap.class.getDeclaredMethod(
+                            "m_183754_",
+                            ServerPlayer.class,
+                            ChunkPos.class,
+                            MutableObject.class,
+                            boolean.class,
+                            boolean.class
+                    );
+                }
+                method.setAccessible(true);
+                neb$updateChunkTrackingMethod = method;
+            }
+            method.invoke(this, player, pos, packetHolder, wasInRange, isInRange);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to resolve ChunkMap updateChunkTracking method", e);
+        }
+    }
+
+    @Unique
     private void nebRemoveCacheTicket(ChunkPos pos) {
         for (Map.Entry<Integer, TicketType<Integer>> entry : NEB_CACHE_TICKETS.entrySet()) {
-            getDistanceManager().removeRegionTicket(entry.getValue(), pos, 1, entry.getKey());
+            nebDistanceManager().removeRegionTicket(entry.getValue(), pos, 1, entry.getKey());
         }
     }
 
     @Unique
     private void nebUpdatePlayerTickets(int viewDistance) {
-        ((DistanceManagerAccessor) getDistanceManager()).nebInvokeUpdatePlayerTickets(viewDistance);
+        DistanceManager distanceManager = nebDistanceManager();
+        try {
+            Method method;
+            try {
+                method = DistanceManager.class.getDeclaredMethod("updatePlayerTickets", int.class);
+            } catch (NoSuchMethodException ignored) {
+                method = DistanceManager.class.getDeclaredMethod("m_140777_", int.class);
+            }
+            method.setAccessible(true);
+            method.invoke(distanceManager, viewDistance);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to invoke DistanceManager.updatePlayerTickets", e);
+        }
     }
 
     @Unique
-    private void nebTickChunkCache(ServerPlayer player) {
-        if (!nebCacheEnabled()) {
-            CachedChunkTrackingView.clear(player, pos ->
-            {
+    private CachedChunkTrackingView.Context nebChunkTrackingContext(ServerPlayer player) {
+        return new CachedChunkTrackingView.Context() {
+            @Override
+            public void startChunkTracking(ChunkPos pos) {
+                nebCallVanillaUpdateChunkTracking(player, pos, false, true);
+            }
+
+            @Override
+            public void stopChunkTracking(ChunkPos pos) {
+                nebCallVanillaUpdateChunkTracking(player, pos, true, false);
+            }
+
+            @Override
+            public void putTicket(ChunkPos pos, int ticks) {
+                TicketType<Integer> type = getCacheTicketType(Math.max(1, ticks));
+                nebDistanceManager().addRegionTicket(type, pos, 1, ticks);
+            }
+
+            @Override
+            public void removeTicket(ChunkPos pos) {
                 nebRemoveCacheTicket(pos);
-                nebCallVanillaUpdateChunkTracking(player, pos, new MutableObject<>(), true, false);
-            });
+            }
+
+            @Override
+            public void onCacheHit(ChunkPos pos, int estimatedBodySize) {
+                int estimatedRawSize = RawTrafficHelper.estimateCachedChunkRawSize(estimatedBodySize);
+                if (estimatedRawSize > 0) {
+                    SimpleStatManager.outRaw(estimatedRawSize);
+                }
+            }
+
+            @Override
+            public int estimateChunkBodySize(ChunkPos pos) {
+                return nebEstimateChunkBodySize(pos);
+            }
+        };
+    }
+
+    @Unique
+    private void nebUpdateChunkTrackingView(ServerPlayer player) {
+        if (!nebCacheEnabled() || player.level() != nebLevel()) {
             return;
         }
-        CachedChunkTrackingView.tick(player, player.chunkPosition(), pos ->
-        {
-            nebRemoveCacheTicket(pos);
-            nebCallVanillaUpdateChunkTracking(player, pos, new MutableObject<>(), true, false);
-        });
+        CachedChunkTrackingView.onUpdateChunkTracking(player, nebViewDistance(), nebChunkTrackingContext(player));
     }
 
     @Inject(method = "updatePlayerStatus", at = @At("HEAD"))
     private void nebBeforeUpdatePlayerStatus(ServerPlayer player, boolean added, CallbackInfo ci) {
-        NEB_UPDATE_PLAYER_STATUS_ADDED.set(added);
     }
 
     @Inject(method = "updatePlayerStatus", at = @At("TAIL"))
     private void nebOnUpdatePlayerStatus(ServerPlayer player, boolean added, CallbackInfo ci) {
-        try {
-            if (!added) {
-                CachedChunkTrackingView.clear(player, pos ->
-                {
-                    nebRemoveCacheTicket(pos);
-                    nebCallVanillaUpdateChunkTracking(player, pos, new MutableObject<>(), true, false);
-                });
-                return;
-            }
-            nebTickChunkCache(player);
-        } finally {
-            NEB_UPDATE_PLAYER_STATUS_ADDED.remove();
+        if (!nebCacheEnabled()) {
+            CachedChunkTrackingView.clear(player, nebChunkTrackingContext(player));
+            return;
         }
+        if (!added) {
+            CachedChunkTrackingView.clear(player, nebChunkTrackingContext(player));
+            return;
+        }
+        nebUpdateChunkTrackingView(player);
     }
 
     @Inject(method = "move", at = @At("TAIL"))
     private void nebOnMove(ServerPlayer player, CallbackInfo ci) {
-        nebTickChunkCache(player);
+        if (nebCacheEnabled()) {
+            nebUpdateChunkTrackingView(player);
+        }
     }
 
-    /**
-     * @author Burning_TNT
-     * @reason Forge 1.20.1 does not expose NeoForge's ChunkTrackingView path,
-     * so NEB needs to take over the view-distance diff update here to
-     * keep delayed chunk caching semantics consistent when server view distance changes.
-     */
-    @Overwrite
-    public void setViewDistance(int viewDistance) {
+    @Inject(method = "setViewDistance", at = @At("HEAD"), cancellable = true)
+    private void nebSetViewDistance(int viewDistance, CallbackInfo ci) {
         int clamped = Mth.clamp(viewDistance, 2, 32);
-        if (clamped == this.viewDistance) {
+        if (clamped == nebViewDistance()) {
+            ci.cancel();
             return;
         }
 
-        int oldViewDistance = this.viewDistance;
-        this.viewDistance = clamped;
-        nebUpdatePlayerTickets(this.viewDistance);
+        int oldViewDistance = nebViewDistance();
+        nebSetViewDistance(clamped);
+        nebUpdatePlayerTickets(nebViewDistance());
 
-        for (ChunkHolder chunkHolder : this.updatingChunkMap.values()) {
+        if (nebCacheEnabled()) {
+            for (ServerPlayer player : nebLevel().players()) {
+                nebUpdateChunkTrackingView(player);
+            }
+            return;
+        }
+
+        for (ChunkHolder chunkHolder : nebUpdatingChunkMap().values()) {
             ChunkPos chunkPos = chunkHolder.getPos();
             MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder = new MutableObject<>();
 
-            for (ServerPlayer player : this.level.players()) {
+            for (ServerPlayer player : nebLevel().players()) {
                 SectionPos lastSectionPos = player.getLastSectionPos();
                 boolean wasInRange = ChunkMap.isChunkInRange(
                         chunkPos.x,
@@ -159,128 +354,29 @@ public abstract class ChunkMapMixin {
                         chunkPos.z,
                         lastSectionPos.x(),
                         lastSectionPos.z(),
-                        this.viewDistance
+                        nebViewDistance()
                 );
                 if (wasInRange || isInRange) {
-                    nebHandleChunkTracking(player, chunkPos, packetHolder, wasInRange, isInRange);
+                    nebInvokeUpdateChunkTracking(player, chunkPos, packetHolder, wasInRange, isInRange);
                 }
             }
         }
-
-        for (ServerPlayer player : this.level.players()) {
-            nebTickChunkCache(player);
-        }
-    }
-
-    @Redirect(
-            method = "updatePlayerStatus",
-            at = @At(
-                    value = "INVOKE",
-                    target = "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V"
-            )
-    )
-    private void nebRedirectUpdateChunkTrackingInUpdatePlayerStatus(
-            ChunkMap instance,
-            ServerPlayer player,
-            ChunkPos pos,
-            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
-            boolean wasInRange,
-            boolean isInRange
-    ) {
-        if (Boolean.FALSE.equals(NEB_UPDATE_PLAYER_STATUS_ADDED.get())) {
-            nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
-            return;
-        }
-        nebHandleChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
-    }
-
-    @Redirect(
-            method = "move",
-            at = @At(
-                    value = "INVOKE",
-                    target = "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V"
-            )
-    )
-    private void nebRedirectUpdateChunkTrackingInMove(
-            ChunkMap instance,
-            ServerPlayer player,
-            ChunkPos pos,
-            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
-            boolean wasInRange,
-            boolean isInRange
-    ) {
-        nebHandleChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
-    }
-
-    @Unique
-    private void nebHandleChunkTracking(
-            ServerPlayer player,
-            ChunkPos pos,
-            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
-            boolean wasInRange,
-            boolean isInRange
-    ) {
-        if (NEB_INTERNAL_TRACKING.get()) {
-            updateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
-            return;
-        }
-
-        if (!nebCacheEnabled()) {
-            nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
-            return;
-        }
-
-        if (player.level() != this.level) {
-            return;
-        }
-
-        if (!wasInRange && isInRange) {
-            int cachedChunkBodySize = CachedChunkTrackingView.onChunkEnter(player, pos);
-            if (cachedChunkBodySize >= 0) {
-                nebRemoveCacheTicket(pos);
-                int estimatedRawSize = RawTrafficHelper.estimateCachedChunkRawSize(cachedChunkBodySize);
-                if (estimatedRawSize > 0) {
-                    SimpleStatManager.outRaw(estimatedRawSize);
-                }
-                return;
-            }
-            nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, false, true);
-            return;
-        }
-
-        if (wasInRange && !isInRange) {
-            if (CachedChunkTrackingView.onChunkLeave(player, pos, player.chunkPosition(), nebEstimateChunkBodySize(pos))) {
-                int ticks = nebCacheTicketTicks();
-                TicketType<Integer> type = getCacheTicketType(ticks);
-                getDistanceManager().addRegionTicket(type, pos, 1, ticks);
-                return;
-            }
-            nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, true, false);
-            return;
-        }
-
-        nebCallVanillaUpdateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+        ci.cancel();
     }
 
     @Unique
     private void nebCallVanillaUpdateChunkTracking(
             ServerPlayer player,
             ChunkPos pos,
-            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
             boolean wasInRange,
             boolean isInRange
     ) {
-        NEB_INTERNAL_TRACKING.set(true);
-        try {
-            updateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
-        } finally {
-            NEB_INTERNAL_TRACKING.set(false);
-        }
+        nebInvokeUpdateChunkTracking(player, pos, new MutableObject<>(), wasInRange, isInRange);
     }
 
     @Unique
     private int nebEstimateChunkBodySize(ChunkPos pos) {
-        ChunkHolder chunkHolder = this.updatingChunkMap.get(pos.toLong());
+        ChunkHolder chunkHolder = nebUpdatingChunkMap().get(pos.toLong());
         if (chunkHolder == null) {
             return 0;
         }
@@ -290,7 +386,4 @@ public abstract class ChunkMapMixin {
         }
         return RawTrafficHelper.estimateChunkBodySize(chunk);
     }
-
-    @Shadow
-    protected abstract void updateChunkTracking(ServerPlayer player, ChunkPos pos, MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder, boolean wasInRange, boolean isInRange);
 }

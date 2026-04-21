@@ -1,6 +1,10 @@
 package cn.ussshenzhou.notenoughbandwidth.util;
 
+import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
 import net.minecraft.network.ConnectionProtocol;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
@@ -19,6 +23,8 @@ public class PacketUtil {
     // Cache: packet class -> ResourceLocation id
     private static final ConcurrentHashMap<Class<?>, ResourceLocation> TYPE_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<Class<?>, ResourceLocation> VANILLA_PACKET_IDS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<ResourceLocation, Integer> VANILLA_CLIENTBOUND_PACKET_IDS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<ResourceLocation, Integer> VANILLA_SERVERBOUND_PACKET_IDS = new ConcurrentHashMap<>();
     private static volatile boolean vanillaPacketIdsInitialized = false;
     private static final Map<String, String> VANILLA_NAME_OVERRIDES = Map.ofEntries(
             Map.entry("net.minecraft.network.protocol.game.ClientboundHorseScreenOpenPacket", "mount_screen_open"),
@@ -68,31 +74,12 @@ public class PacketUtil {
             } catch (Throwable ignored) {
             }
 
-            ResourceLocation fromRegistry = ModNetworkRegistry.getPacketId(cls);
-            if (fromRegistry != null) {
-                return fromRegistry;
+            if (PacketAggregationPacket.class == cls) {
+                return PacketAggregationPacket.TYPE;
             }
 
             return fallbackPacketId(cls);
         });
-    }
-
-    /**
-     * Resolve the canonical id for a packet class without having a packet instance.
-     */
-    public static ResourceLocation getPacketId(Class<?> cls) {
-        if (cls == null) {
-            return null;
-        }
-        ResourceLocation vanilla = getVanillaPacketId(cls);
-        if (vanilla != null) {
-            return vanilla;
-        }
-        ResourceLocation fromRegistry = ModNetworkRegistry.getPacketId(cls);
-        if (fromRegistry != null) {
-            return fromRegistry;
-        }
-        return fallbackPacketId(cls);
     }
 
     private static ResourceLocation getVanillaPacketId(Class<?> cls) {
@@ -111,9 +98,29 @@ public class PacketUtil {
 
     private static void registerVanillaPackets(PacketFlow flow) {
         var packetsByIds = ConnectionProtocol.PLAY.getPacketsByIds(flow);
-        for (Class<? extends Packet<?>> packetClass : packetsByIds.values()) {
-            VANILLA_PACKET_IDS.putIfAbsent(packetClass, buildVanillaPacketId(packetClass));
+        for (var entry : packetsByIds.entrySet()) {
+            Class<? extends Packet<?>> packetClass = entry.getValue();
+            ResourceLocation packetId = buildVanillaPacketId(packetClass);
+            VANILLA_PACKET_IDS.putIfAbsent(packetClass, packetId);
+            if (packetId != null) {
+                if (flow == PacketFlow.CLIENTBOUND) {
+                    VANILLA_CLIENTBOUND_PACKET_IDS.putIfAbsent(packetId, entry.getKey());
+                } else {
+                    VANILLA_SERVERBOUND_PACKET_IDS.putIfAbsent(packetId, entry.getKey());
+                }
+            }
         }
+    }
+
+    public static int getVanillaPacketId(PacketFlow flow, ResourceLocation type) {
+        if (type == null) {
+            return -1;
+        }
+        ensureVanillaPacketIds();
+        Integer id = flow == PacketFlow.CLIENTBOUND
+                ? VANILLA_CLIENTBOUND_PACKET_IDS.get(type)
+                : VANILLA_SERVERBOUND_PACKET_IDS.get(type);
+        return id == null ? -1 : id;
     }
 
     private static ResourceLocation buildVanillaPacketId(Class<?> cls) {
@@ -154,11 +161,42 @@ public class PacketUtil {
 
     /**
      * Get the "true" packet object.
-     * For Forge 1.20.1 game custom payload packets, return the packet itself for now;
-     * the caller should use getTrueType(packet) to read the embedded channel id.
+     * For Forge 1.20.1 game custom payload packets, prefer decoding registered
+     * NEB payloads so upper layers can reason about the payload object directly,
+     * similar to the NeoForge branch.
      */
     public static Object getTruePacket(Packet<?> packet) {
+        if (packet instanceof ClientboundCustomPayloadPacket clientbound) {
+            if (clientbound.getIdentifier() != null && PayloadRegistry.contains(clientbound.getIdentifier())) {
+                FriendlyByteBuf payload = new FriendlyByteBuf(clientbound.getInternalData().retainedDuplicate());
+                NebPayload decoded = decodeRegisteredPayload(clientbound.getIdentifier(), payload, true);
+                if (decoded != null) {
+                    return decoded;
+                }
+            }
+            return packet;
+        }
+        if (packet instanceof ServerboundCustomPayloadPacket serverbound) {
+            if (serverbound.getIdentifier() != null && PayloadRegistry.contains(serverbound.getIdentifier())) {
+                FriendlyByteBuf payload = new FriendlyByteBuf(serverbound.getData().retainedDuplicate());
+                NebPayload decoded = decodeRegisteredPayload(serverbound.getIdentifier(), payload, true);
+                if (decoded != null) {
+                    return decoded;
+                }
+            }
+            return packet;
+        }
         return packet;
+    }
+
+    private static NebPayload decodeRegisteredPayload(ResourceLocation id, FriendlyByteBuf payload, boolean releasePayload) {
+        try {
+            return PayloadRegistry.decode(id, payload);
+        } finally {
+            if (releasePayload && payload.refCnt() > 0) {
+                payload.release();
+            }
+        }
     }
 
     /**

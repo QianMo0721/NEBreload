@@ -23,8 +23,8 @@ import java.util.Set;
 public class NebMixinConfigPlugin implements IMixinConfigPlugin {
     private static final Set<String> SERVER_ONLY_MIXINS = Set.of(
             "cn.ussshenzhou.notenoughbandwidth.mixin.ChunkMapMixin",
-            "cn.ussshenzhou.notenoughbandwidth.mixin.DistanceManagerAccessor",
             "cn.ussshenzhou.notenoughbandwidth.mixin.PlayerListMixin",
+            "cn.ussshenzhou.notenoughbandwidth.mixin.ServerPlayerChunkTrackingViewMixin",
             "cn.ussshenzhou.notenoughbandwidth.mixin.ServerGamePacketListenerImplMixin"
     );
 

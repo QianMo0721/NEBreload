@@ -1,11 +1,14 @@
 package cn.ussshenzhou.notenoughbandwidth.zstd;
 
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.RemovalListener;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraftforge.server.ServerLifecycleHooks;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutionException;
@@ -23,6 +26,9 @@ public class ZstdHelper {
                     notification.getValue().close();
                 }
             })
+            .build();
+    private static final Cache<Connection, Boolean> CONNECTION_USE_CONTEXT = CacheBuilder.newBuilder()
+            .weakKeys()
             .build();
 
     private static boolean detectAvailability() {
@@ -59,7 +65,7 @@ public class ZstdHelper {
     }
 
     private static ByteBuf decompressStateless(ByteBuf compressed, int originalSize) {
-        try (Context ctx = new Context()) {
+        try (Context ctx = new Context(false)) {
             if (compressed.isDirect()) {
                 return Unpooled.wrappedBuffer(ctx.decompress(compressed.nioBuffer(), originalSize));
             }
@@ -80,7 +86,7 @@ public class ZstdHelper {
      * Stateless compress using a thread-local context (no Connection required).
      */
     public static byte[] compress(byte[] raw) {
-        try (Context ctx = new Context()) {
+        try (Context ctx = new Context(false)) {
             ByteBuffer result = ctx.compress(ByteBuffer.wrap(raw));
             byte[] out = new byte[result.remaining()];
             result.get(out);
@@ -94,7 +100,7 @@ public class ZstdHelper {
      * Stateless decompress using a thread-local context (no Connection required).
      */
     public static byte[] decompress(byte[] compressed, int originalSize) {
-        try (Context ctx = new Context()) {
+        try (Context ctx = new Context(false)) {
             ByteBuffer result = ctx.decompress(ByteBuffer.wrap(compressed), originalSize);
             byte[] out = new byte[result.remaining()];
             result.get(out);
@@ -107,9 +113,34 @@ public class ZstdHelper {
     private static Context get(Connection connection) {
         ZSTD_CONTEXT_CACHE.asMap().entrySet().removeIf(e -> !e.getKey().isConnected());
         try {
-            return ZSTD_CONTEXT_CACHE.get(connection, Context::new);
+            return ZSTD_CONTEXT_CACHE.get(connection, () -> new Context(shouldUseContext(connection)));
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static boolean shouldUseContext(Connection connection) {
+        if (connection.getReceiving() == PacketFlow.CLIENTBOUND) {
+            return true;
+        }
+        var server = ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
+            return true;
+        }
+        Boolean cached = CONNECTION_USE_CONTEXT.getIfPresent(connection);
+        if (cached != null) {
+            return cached;
+        }
+        var player = server.getPlayerList().getPlayers()
+                .stream()
+                .filter(serverPlayer -> serverPlayer.connection.connection.equals(connection))
+                .findFirst()
+                .orElse(null);
+        boolean shouldUseContext = true;
+        if (player != null) {
+            shouldUseContext = NotEnoughBandwidthLegacyConfig.get().shouldUseZstdContextForPlayer(player.getUUID().toString());
+        }
+        CONNECTION_USE_CONTEXT.put(connection, shouldUseContext);
+        return shouldUseContext;
     }
 }

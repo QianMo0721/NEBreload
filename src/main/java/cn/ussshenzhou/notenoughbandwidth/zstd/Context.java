@@ -1,6 +1,8 @@
 package cn.ussshenzhou.notenoughbandwidth.zstd;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
+import com.github.luben.zstd.EndDirective;
+import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdCompressCtx;
 import com.github.luben.zstd.ZstdDecompressCtx;
 
@@ -13,8 +15,13 @@ import java.nio.ByteBuffer;
 public class Context implements Closeable {
     private final ZstdCompressCtx compressCtx;
     private final ZstdDecompressCtx decompressCtx;
+    private final boolean useContext;
 
     public Context() {
+        this(true);
+    }
+
+    public Context(boolean useContext) {
         compressCtx = new ZstdCompressCtx();
         compressCtx.setLevel(NotEnoughBandwidthLegacyConfig.get().getZstdCompressionLevel());
         compressCtx.setContentSize(false);
@@ -22,17 +29,27 @@ public class Context implements Closeable {
         compressCtx.setWindowLog(NotEnoughBandwidthLegacyConfig.get().getContextLevel());
         decompressCtx = new ZstdDecompressCtx();
         decompressCtx.setMagicless(true);
+        this.useContext = useContext;
     }
 
-    public ByteBuffer compress(ByteBuffer src) {
-        return compressCtx.compress(ensureDirect(src));
+    public ByteBuffer compress(ByteBuffer raw) {
+        ByteBuffer directRaw = ensureDirect(raw);
+        if (useContext) {
+            int maxCompressedSize = (int) Zstd.compressBound(directRaw.remaining());
+            ByteBuffer compressed = ByteBuffer.allocateDirect(maxCompressedSize);
+            compressCtx.compressDirectByteBufferStream(compressed, directRaw, EndDirective.FLUSH);
+            compressed.flip();
+            return compressed;
+        }
+        return compressCtx.compress(directRaw);
     }
 
-    public ByteBuffer decompress(ByteBuffer src, int originalSize) {
-        ByteBuffer dst = ByteBuffer.allocateDirect(originalSize);
-        decompressCtx.decompress(dst, ensureDirect(src));
-        dst.flip();
-        return dst;
+    public ByteBuffer decompress(ByteBuffer compressed, int originalSize) {
+        ByteBuffer directCompressed = ensureDirect(compressed);
+        ByteBuffer decompressed = ByteBuffer.allocateDirect(originalSize);
+        decompressCtx.decompressDirectByteBufferStream(decompressed, directCompressed);
+        decompressed.flip();
+        return decompressed;
     }
 
     private static ByteBuffer ensureDirect(ByteBuffer src) {

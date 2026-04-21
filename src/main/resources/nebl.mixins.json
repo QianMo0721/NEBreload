@@ -8,11 +8,13 @@
   "mixins": [
     "ConnectionMixin",
     "NetworkRegistryMixin",
+    "Varint21FrameDecoderMixin",
+    "Varint21LengthFieldPrependerMixin",
     "PacketDecoderMixin",
     "PacketEncoderMixin",
     "ChunkMapMixin",
-    "DistanceManagerAccessor",
     "PlayerListMixin",
+    "ServerPlayerChunkTrackingViewMixin",
     "ServerGamePacketListenerImplMixin"
   ],
   "client": [

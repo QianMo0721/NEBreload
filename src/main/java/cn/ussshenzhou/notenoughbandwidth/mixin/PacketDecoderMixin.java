@@ -6,6 +6,7 @@ import cn.ussshenzhou.notenoughbandwidth.util.EncodedTrafficStatHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.PacketDecoder;
 import net.minecraft.network.protocol.Packet;
 import org.spongepowered.asm.mixin.Mixin;
@@ -23,17 +24,18 @@ public class PacketDecoderMixin {
 
     @Inject(method = "decode",
             at = @At(value = "TAIL"))
-    private void nebRecordIn(ChannelHandlerContext ctx, ByteBuf input, List<Object> out, CallbackInfo ci) {
+    private void nebRecordInboundTraffic(ChannelHandlerContext ctx, ByteBuf input, List<Object> out, CallbackInfo ci) {
         if (!out.isEmpty()) {
             Object last = out.get(out.size() - 1);
             if (last instanceof Packet<?> packet) {
                 int bakedSize = input.readerIndex();
-                int rawSize = EncodedTrafficStatHelper.estimateRawPacketSize(packet, input);
                 SimpleStatManager.inBaked(bakedSize);
-                SimpleStatManager.inRaw(rawSize);
                 Object truePacket = PacketUtil.getTruePacket(packet);
                 if (truePacket instanceof PacketAggregationPacket aggregationPacket) {
                     aggregationPacket.setBakedSize(bakedSize);
+                } else {
+                    int rawSize = EncodedTrafficStatHelper.estimateRawPacketSize(packet, input);
+                    SimpleStatManager.inRaw(rawSize);
                 }
             }
         }

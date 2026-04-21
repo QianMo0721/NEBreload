@@ -1,6 +1,7 @@
 package cn.ussshenzhou.notenoughbandwidth.stat;
 
 import cn.ussshenzhou.network.StatQuery;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -11,17 +12,30 @@ import static cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager.*;
  * @author USS_Shenzhou
  */
 public class StatScreen extends Screen {
-    private final String client = "Client";
-    private final String actual = "Actual Transmission";
-    private String actualC = "";
-    private String raw = "Raw Payload";
-    private String rawC = "";
-    private String ratioC = "";
+    private static final int TITLE_COLOR = 0xFFFFFF;
+    private static final int ACTUAL_COLOR = 0xA8F7A8;
+    private static final int RAW_COLOR = 0xF2A3A3;
+    private static final int RATIO_COLOR = 0xB1B0FF;
 
-    private final String server = "Server";
-    private String actualS = "-";
-    private String rawS = "-";
-    private String ratioS = "-";
+    private final String clientTitle = "Client";
+    private final String actualLabel = "Actual Transmission";
+    private final String rawLabel = "Raw Payload";
+    private final String ratioLabel = "Ratio";
+
+    private String actualClientInboundText = "-";
+    private String actualClientOutboundText = "-";
+    private String rawClientInboundText = "-";
+    private String rawClientOutboundText = "-";
+    private String ratioClientInboundText = "-";
+    private String ratioClientOutboundText = "-";
+
+    private final String serverTitle = "Server";
+    private String actualServerInboundText = "-";
+    private String actualServerOutboundText = "-";
+    private String rawServerInboundText = "-";
+    private String rawServerOutboundText = "-";
+    private String ratioServerInboundText = "-";
+    private String ratioServerOutboundText = "-";
 
     private int tick = 0;
 
@@ -33,50 +47,31 @@ public class StatScreen extends Screen {
     public void tick() {
         super.tick();
         if (tick % 10 == 0) {
-            cn.ussshenzhou.network.ModNetworkRegistry.QUERY_CHANNEL.sendToServer(new StatQuery());
-            actualC = "↓ Inbound  "
-                    + getReadableSpeed((int) LOCAL.inboundSpeedBaked().averageIn1s())
-                    + "  Total  "
-                    + getReadableSize(LOCAL.inboundBytesBaked().get())
-                    + "    ↑ Outbound  "
-                    + getReadableSpeed((int) LOCAL.outboundSpeedBaked().averageIn1s())
-                    + "  Total  "
-                    + getReadableSize(LOCAL.outboundBytesBaked().get());
-            rawC = "↓ Inbound  "
-                    + getReadableSpeed((int) LOCAL.inboundSpeedRaw().averageIn1s())
-                    + "  Total  "
-                    + getReadableSize(LOCAL.inboundBytesRaw().get())
-                    + "    ↑ Outbound  "
-                    + getReadableSpeed((int) LOCAL.outboundSpeedRaw().averageIn1s())
-                    + "  Total  "
-                    + getReadableSize(LOCAL.outboundBytesRaw().get());
-            ratioC = "Ratio                            "
-                    + getRatio(LOCAL.inboundBytesBaked().get(), LOCAL.inboundBytesRaw().get())
-                    + "                                        "
-                    + getRatio(LOCAL.outboundBytesBaked().get(), LOCAL.outboundBytesRaw().get());
+            cn.ussshenzhou.network.ModNetworkRegistry.sendToServer(new StatQuery());
 
-            actualS = "↓ Inbound  "
-                    + getReadableSpeed((int) inboundSpeedBakedServer)
-                    + "  Total  "
-                    + getReadableSize(inboundBytesBakedServer)
-                    + "    ↑ Outbound  "
-                    + getReadableSpeed((int) outboundSpeedBakedServer)
-                    + "  Total  "
-                    + getReadableSize(outboundBytesBakedServer);
-            rawS = "↓ Inbound  "
-                    + getReadableSpeed((int) inboundSpeedRawServer)
-                    + "  Total  "
-                    + getReadableSize(inboundBytesRawServer)
-                    + "    ↑ Outbound  "
-                    + getReadableSpeed((int) outboundSpeedRawServer)
-                    + "  Total  "
-                    + getReadableSize(outboundBytesRawServer);
-            ratioS = "Ratio                            "
-                    + getRatio(inboundBytesBakedServer, inboundBytesRawServer)
-                    + "                                        "
-                    + getRatio(outboundBytesBakedServer, outboundBytesRawServer);
+            actualClientInboundText = formatInbound((int) LOCAL.inboundSpeedBaked().averageIn1s(), LOCAL.inboundBytesBaked().get());
+            actualClientOutboundText = formatOutbound((int) LOCAL.outboundSpeedBaked().averageIn1s(), LOCAL.outboundBytesBaked().get());
+            rawClientInboundText = formatInbound((int) LOCAL.inboundSpeedRaw().averageIn1s(), LOCAL.inboundBytesRaw().get());
+            rawClientOutboundText = formatOutbound((int) LOCAL.outboundSpeedRaw().averageIn1s(), LOCAL.outboundBytesRaw().get());
+            ratioClientInboundText = getRatio(LOCAL.inboundBytesBaked().get(), LOCAL.inboundBytesRaw().get());
+            ratioClientOutboundText = getRatio(LOCAL.outboundBytesBaked().get(), LOCAL.outboundBytesRaw().get());
+
+            actualServerInboundText = formatInbound((int) inboundSpeedBakedServer, inboundBytesBakedServer);
+            actualServerOutboundText = formatOutbound((int) outboundSpeedBakedServer, outboundBytesBakedServer);
+            rawServerInboundText = formatInbound((int) inboundSpeedRawServer, inboundBytesRawServer);
+            rawServerOutboundText = formatOutbound((int) outboundSpeedRawServer, outboundBytesRawServer);
+            ratioServerInboundText = getRatio(inboundBytesBakedServer, inboundBytesRawServer);
+            ratioServerOutboundText = getRatio(outboundBytesBakedServer, outboundBytesRawServer);
         }
         tick++;
+    }
+
+    private static String formatInbound(int speedBytes, long totalBytes) {
+        return "↓ Inbound  " + getReadableSpeed(speedBytes) + "  Total  " + getReadableSize(totalBytes);
+    }
+
+    private static String formatOutbound(int speedBytes, long totalBytes) {
+        return "↑ Outbound  " + getReadableSpeed(speedBytes) + "  Total  " + getReadableSize(totalBytes);
     }
 
     private static String getRatio(double baked, double raw) {
@@ -86,24 +81,64 @@ public class StatScreen extends Screen {
         return String.format("%.2f%%", 100d * baked / raw);
     }
 
+    private static String getReadableSpeed(int bytes) {
+        if (bytes < 1000) {
+            return bytes + " Bytes/S";
+        } else if (bytes < 1000 * 1000) {
+            return String.format("%.1f KiB/S", bytes / 1024f);
+        } else {
+            return String.format("%.2f MiB/S", bytes / (1024 * 1024f));
+        }
+    }
+
+    private static String getReadableSize(long bytes) {
+        if (bytes < 1000) {
+            return bytes + " Bytes";
+        } else if (bytes < 1000 * 1000) {
+            return String.format("%.1f KiB", bytes / 1024d);
+        } else if (bytes < 1000 * 1000 * 1000) {
+            return String.format("%.2f MiB", bytes / (1024 * 1024d));
+        } else {
+            return String.format("%.2f GiB", bytes / (1024 * 1024 * 1024d));
+        }
+    }
+
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         this.renderBackground(guiGraphics);
         guiGraphics.fill(0, 0, this.width, this.height, 0x80000000);
-        guiGraphics.drawString(this.font, client, 10, 10, 0xFFFFFF);
-        guiGraphics.drawString(this.font, actual, 10, 30, 0xFFFFFF);
-        guiGraphics.drawString(this.font, actualC, 10, 40, 0xAAFFAA);
-        guiGraphics.drawString(this.font, raw, 10, 60, 0xFFFFFF);
-        guiGraphics.drawString(this.font, rawC, 10, 70, 0xFFAAAA);
-        guiGraphics.drawString(this.font, ratioC, 10, 90, 0xAAAAFF);
 
-        guiGraphics.drawString(this.font, server, 10, 120, 0xFFFFFF);
-        guiGraphics.drawString(this.font, actual, 10, 140, 0xFFFFFF);
-        guiGraphics.drawString(this.font, actualS, 10, 150, 0xAAFFAA);
-        guiGraphics.drawString(this.font, raw, 10, 170, 0xFFFFFF);
-        guiGraphics.drawString(this.font, rawS, 10, 180, 0xFFAAAA);
-        guiGraphics.drawString(this.font, ratioS, 10, 200, 0xAAAAFF);
+        int leftX = 10;
+        int rightX = Math.max(this.width / 2 + 10, 220);
+
+        guiGraphics.drawString(this.font, clientTitle, leftX, 10, TITLE_COLOR);
+        guiGraphics.drawString(this.font, actualLabel, leftX, 30, TITLE_COLOR);
+        guiGraphics.drawString(this.font, actualClientInboundText, leftX, 40, ACTUAL_COLOR);
+        guiGraphics.drawString(this.font, actualClientOutboundText, rightX, 40, ACTUAL_COLOR);
+        guiGraphics.drawString(this.font, rawLabel, leftX, 60, TITLE_COLOR);
+        guiGraphics.drawString(this.font, rawClientInboundText, leftX, 70, RAW_COLOR);
+        guiGraphics.drawString(this.font, rawClientOutboundText, rightX, 70, RAW_COLOR);
+        guiGraphics.drawString(this.font, ratioLabel, leftX, 90, TITLE_COLOR);
+        guiGraphics.drawString(this.font, ratioClientInboundText, leftX + 80, 90, RATIO_COLOR);
+        guiGraphics.drawString(this.font, ratioClientOutboundText, rightX, 90, RATIO_COLOR);
+
+        if (hasSufficientPermissions()) {
+            guiGraphics.drawString(this.font, serverTitle, leftX, 120, TITLE_COLOR);
+            guiGraphics.drawString(this.font, actualLabel, leftX, 140, TITLE_COLOR);
+            guiGraphics.drawString(this.font, actualServerInboundText, leftX, 150, ACTUAL_COLOR);
+            guiGraphics.drawString(this.font, actualServerOutboundText, rightX, 150, ACTUAL_COLOR);
+            guiGraphics.drawString(this.font, rawLabel, leftX, 170, TITLE_COLOR);
+            guiGraphics.drawString(this.font, rawServerInboundText, leftX, 180, RAW_COLOR);
+            guiGraphics.drawString(this.font, rawServerOutboundText, rightX, 180, RAW_COLOR);
+            guiGraphics.drawString(this.font, ratioLabel, leftX, 200, TITLE_COLOR);
+            guiGraphics.drawString(this.font, ratioServerInboundText, leftX + 80, 200, RATIO_COLOR);
+            guiGraphics.drawString(this.font, ratioServerOutboundText, rightX, 200, RATIO_COLOR);
+        }
         super.render(guiGraphics, mouseX, mouseY, partialTick);
+    }
+
+    private boolean hasSufficientPermissions() {
+        return Minecraft.getInstance().player != null && Minecraft.getInstance().player.hasPermissions(2);
     }
 
     @Override

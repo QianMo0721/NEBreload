@@ -1,22 +1,33 @@
 package cn.ussshenzhou.network;
 
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PacketDistributor;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadCodec;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadContext;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.network.NetworkDirection;
-import net.minecraftforge.network.NetworkEvent;
-
-import java.util.function.Supplier;
 
 import static cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager.LOCAL;
 
 /**
  * @author USS_Shenzhou
  */
-public class StatQuery {
+public class StatQuery implements NebPayload {
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "stat_query");
+    public static final StatQuery SAMPLE = new StatQuery();
+    public static final PayloadCodec<StatQuery> CODEC = new PayloadCodec<>() {
+        @Override
+        public void encode(FriendlyByteBuf buf, StatQuery payload) {
+        }
+
+        @Override
+        public StatQuery decode(FriendlyByteBuf buf) {
+            return new StatQuery(buf);
+        }
+    };
 
     public StatQuery() {
     }
@@ -28,27 +39,25 @@ public class StatQuery {
         // empty
     }
 
-    public void handle(Supplier<NetworkEvent.Context> ctxSupplier) {
-        NetworkEvent.Context ctx = ctxSupplier.get();
-        ctx.enqueueWork(() -> {
-            ServerPlayer serverPlayer = ctx.getSender();
-            if (serverPlayer != null && serverPlayer.hasPermissions(2)) {
-                cn.ussshenzhou.network.ModNetworkRegistry.RESPOND_CHANNEL.sendTo(
-                        new StatRespond(
-                                LOCAL.inboundBytesBaked().get(),
-                                LOCAL.inboundBytesRaw().get(),
-                                LOCAL.outboundBytesBaked().get(),
-                                LOCAL.outboundBytesRaw().get(),
-                                LOCAL.inboundSpeedBaked().averageIn1s(),
-                                LOCAL.inboundSpeedRaw().averageIn1s(),
-                                LOCAL.outboundSpeedBaked().averageIn1s(),
-                                LOCAL.outboundSpeedRaw().averageIn1s()
-                        ),
-                        serverPlayer.connection.connection,
-                        NetworkDirection.PLAY_TO_CLIENT
-                );
+    public void handle(PayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer && serverPlayer.hasPermissions(2)) {
+                PacketDistributor.sendToPlayer(serverPlayer, new StatRespond(
+                        LOCAL.inboundBytesBaked().get(),
+                        LOCAL.inboundBytesRaw().get(),
+                        LOCAL.outboundBytesBaked().get(),
+                        LOCAL.outboundBytesRaw().get(),
+                        LOCAL.inboundSpeedBaked().averageIn1s(),
+                        LOCAL.inboundSpeedRaw().averageIn1s(),
+                        LOCAL.outboundSpeedBaked().averageIn1s(),
+                        LOCAL.outboundSpeedRaw().averageIn1s()
+                ));
             }
         });
-        ctx.setPacketHandled(true);
+    }
+
+    @Override
+    public ResourceLocation type() {
+        return TYPE;
     }
 }

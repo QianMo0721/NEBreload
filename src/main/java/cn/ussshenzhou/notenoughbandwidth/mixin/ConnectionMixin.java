@@ -10,8 +10,14 @@ import net.minecraft.network.PacketListener;
 import net.minecraft.network.PacketSendListener;
 import net.minecraft.network.protocol.BundlePacket;
 import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -24,42 +30,65 @@ import java.net.SocketAddress;
  */
 @Mixin(value = Connection.class, priority = 1)
 public abstract class ConnectionMixin {
-    @Shadow
-    @Nullable
-    private volatile PacketListener packetListener;
-
-    @Shadow
-    public abstract void send(Packet<?> packet, @Nullable PacketSendListener listener);
-
-    @Shadow
-    public abstract SocketAddress getRemoteAddress();
-
-    @Shadow
-    private ConnectionProtocol getCurrentProtocol() {
-        throw new AssertionError();
-    }
-
-    @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V", at = @At("HEAD"), cancellable = true)
-    private void nebwPacketAggregate(Packet<?> packet, @Nullable PacketSendListener listener, CallbackInfo ci) {
-        ConnectionProtocol currentProtocol;
-        try {
-            currentProtocol = this.getCurrentProtocol();
-        } catch (Exception ignored) {
+    @Inject(method = "send", at = @At("HEAD"), cancellable = true)
+    private void nebAggregatePacket(Packet<?> packet, @Nullable PacketSendListener listener, CallbackInfo ci) {
+        Connection connection = (Connection) (Object) this;
+        if (AggregationManager.isInternalSend()) {
             return;
         }
-        if (this.getRemoteAddress() instanceof LocalAddress || this.packetListener == null || currentProtocol != ConnectionProtocol.PLAY) {
+        PacketListener packetListener = connection.getPacketListener();
+        if (connection.getRemoteAddress() instanceof LocalAddress || packetListener == null || connection.channel() == null) {
             return;
         }
-        if (NotEnoughBandwidthLegacyConfig.skipType(PacketUtil.getTrueType(packet).toString())) {
-            AggregationManager.flushConnection((Connection) (Object) this);
+        ConnectionProtocol currentProtocol = connection.channel().attr(Connection.ATTRIBUTE_PROTOCOL).get();
+        if (currentProtocol == null) {
+            return;
+        }
+        if (currentProtocol != ConnectionProtocol.PLAY || ConnectionProtocol.getProtocolForPacket(packet) != ConnectionProtocol.PLAY) {
             return;
         }
         if (packet instanceof BundlePacket<?> bundlePacket) {
-            bundlePacket.subPackets().forEach(p -> this.send(p, listener));
+            if (shouldBypassBundlePacket(bundlePacket)) {
+                AggregationManager.flushConnection(connection);
+            }
+            bundlePacket.subPackets().forEach(p -> connection.send(p, listener));
             ci.cancel();
             return;
         }
-        AggregationManager.takeOver(packet, (Connection) (Object) this);
+        if (shouldSkipAggregation(packet)) {
+            AggregationManager.flushConnection(connection);
+            return;
+        }
+        AggregationManager.takeOver(packet, connection);
         ci.cancel();
+    }
+
+    @Unique
+    private static boolean shouldBypassBundlePacket(Packet<?> packet) {
+        if (!(packet instanceof BundlePacket<?> bundlePacket)) {
+            return false;
+        }
+        for (Packet<?> subPacket : bundlePacket.subPackets()) {
+            if (shouldSkipAggregation(subPacket)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Unique
+    private static boolean shouldSkipAggregation(Packet<?> packet) {
+        var type = PacketUtil.getTrueType(packet);
+        return type == null || shouldAlwaysBypassAggregation(packet) || NotEnoughBandwidthLegacyConfig.skipType(type.toString());
+    }
+
+    @Unique
+    private static boolean shouldAlwaysBypassAggregation(Packet<?> packet) {
+        return packet instanceof ClientboundAddEntityPacket
+                || packet instanceof ClientboundMoveEntityPacket
+                || packet instanceof ClientboundTeleportEntityPacket
+                || packet instanceof ClientboundSetEntityMotionPacket
+                || packet instanceof ClientboundRemoveEntitiesPacket
+                || packet instanceof ClientboundBlockUpdatePacket;
     }
 }

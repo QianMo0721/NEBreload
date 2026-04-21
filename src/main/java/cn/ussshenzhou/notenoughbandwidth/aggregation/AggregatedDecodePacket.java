@@ -1,7 +1,13 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
+import cn.ussshenzhou.notenoughbandwidth.network.payload.ChannelAttributes;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadContext;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
+import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
+import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.Connection;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.FriendlyByteBuf;
@@ -12,9 +18,7 @@ import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.RunningOnDifferentThreadException;
-import net.minecraftforge.network.ICustomPacket;
-import net.minecraftforge.network.NetworkEvent;
-import net.minecraftforge.network.NetworkHooks;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 
 import javax.annotation.Nullable;
 
@@ -31,53 +35,33 @@ public class AggregatedDecodePacket {
     private final ResourceLocation type;
     private final int vanillaPacketId;
     private final ByteBuf data;
+    @Nullable
+    private final NebPayload payload;
 
     public AggregatedDecodePacket(ResourceLocation type, ByteBuf data) {
         this.type = type;
         this.vanillaPacketId = -1;
         this.data = data;
+        this.payload = decodeRegisteredPayload(type, data);
     }
 
     public AggregatedDecodePacket(int vanillaPacketId, ByteBuf data) {
         this.type = null;
         this.vanillaPacketId = vanillaPacketId;
         this.data = data;
+        this.payload = null;
     }
 
-    public void handle(NetworkEvent.Context context) {
+    @Nullable
+    private static NebPayload decodeRegisteredPayload(@Nullable ResourceLocation type, ByteBuf data) {
+        if (type == null || !PayloadRegistry.contains(type)) {
+            return null;
+        }
+        FriendlyByteBuf payloadBuf = new FriendlyByteBuf(data.retainedDuplicate());
         try {
-            Connection connection = context.getNetworkManager();
-            if (connection == null) {
-                LOGGER.error("[NEB] Skipped: no connection for sub-packet {}", type);
-                return;
-            }
-            PacketListener listener = connection.getPacketListener();
-            if (listener == null) {
-                LOGGER.error("[NEB] Skipped: no packet listener for sub-packet {}", type);
-                return;
-            }
-
-            PacketFlow receivingFlow = connection.getReceiving();
-            Packet<?> packet = createVanillaPacket(receivingFlow);
-            if (packet != null) {
-                Packet<?> finalPacket = packet;
-                context.enqueueWork(() -> {
-                    try {
-                        ((Packet<PacketListener>) finalPacket).handle(listener);
-                    } catch (Exception ex) {
-                        LOGGER.error("[NEB] Exception handling vanilla sub-packet {}", type, ex);
-                    }
-                });
-                return;
-            }
-
-            if (dispatchCustomPayload(connection, receivingFlow, listener)) {
-                return;
-            }
-
-            LOGGER.error("[NEB] Skipped: unable to decode aggregated sub-packet {}", type);
-        } catch (Exception e) {
-            LOGGER.error("[NEB] Skipped: Failed to handle sub-packet {}", type, e);
+            return PayloadRegistry.decode(type, payloadBuf);
+        } finally {
+            payloadBuf.release();
         }
     }
 
@@ -92,6 +76,7 @@ public class AggregatedDecodePacket {
                 LOGGER.error("[NEB] Skipped: no packet listener for replayed sub-packet {}", type);
                 return;
             }
+            PayloadContext payloadContext = PayloadContext.of(connection, listener, flow);
             Packet<?> packet = createVanillaPacket(flow);
             if (packet != null) {
                 try {
@@ -101,7 +86,12 @@ public class AggregatedDecodePacket {
                 }
                 return;
             }
-            if (dispatchCustomPayload(connection, flow, listener)) {
+            if (payload != null
+                    && hasNegotiatedPayloadChannel(connection, type)
+                    && handleRegisteredPayload(payloadContext)) {
+                return;
+            }
+            if (dispatchCustomPayload(flow, listener)) {
                 return;
             }
             LOGGER.error("[NEB] Skipped: unable to replay aggregated sub-packet {}", type);
@@ -110,23 +100,19 @@ public class AggregatedDecodePacket {
         }
     }
 
-    public Packet<?> decode(PacketFlow flow) {
-        Packet<?> packet = createVanillaPacket(flow);
-        if (packet != null) {
-            return packet;
-        }
-        return createCustomPayloadPacket(flow);
-    }
-
     private Packet<?> createVanillaPacket(PacketFlow flow) {
-        if (vanillaPacketId < 0) {
+        int packetId = vanillaPacketId;
+        if (packetId < 0 && type != null) {
+            packetId = PacketUtil.getVanillaPacketId(flow, type);
+        }
+        if (packetId < 0) {
             return null;
         }
         FriendlyByteBuf buf = new FriendlyByteBuf(data.duplicate());
         try {
-            return ConnectionProtocol.PLAY.createPacket(flow, vanillaPacketId, buf);
+            return ConnectionProtocol.PLAY.createPacket(flow, packetId, buf);
         } catch (Exception e) {
-            LOGGER.debug("[NEB] createVanillaPacket failed for {} / {}: {}", vanillaPacketId, type, e.getMessage());
+            LOGGER.debug("[NEB] createVanillaPacket failed for {} / {}: {}", packetId, type, e.getMessage());
             return null;
         }
     }
@@ -138,7 +124,11 @@ public class AggregatedDecodePacket {
         FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.ByteBufAllocator.DEFAULT.buffer());
         try {
             buf.writeResourceLocation(type);
-            buf.writeBytes(data.duplicate());
+            if (payload != null) {
+                PayloadRegistry.encode(buf, payload);
+            } else {
+                buf.writeBytes(data.duplicate());
+            }
             if (flow == PacketFlow.CLIENTBOUND) {
                 return new ClientboundCustomPayloadPacket(buf);
             }
@@ -151,36 +141,55 @@ public class AggregatedDecodePacket {
         }
     }
 
-    private boolean dispatchCustomPayload(Connection connection, PacketFlow flow, @Nullable PacketListener listener) {
-        if (type == null) {
+    private boolean handleRegisteredPayload(PayloadContext context) {
+        if (payload == null) {
             return false;
         }
-        Packet<?> packet = createCustomPayloadPacket(flow);
-        if (!(packet instanceof ICustomPacket<?> customPacket)) {
+        context.handle(payload);
+        return true;
+    }
+
+    private boolean dispatchCustomPayload(PacketFlow flow, @Nullable PacketListener listener) {
+        if (type == null || listener == null) {
             return false;
         }
         try {
-            if (NetworkHooks.onCustomPayload(customPacket, connection)) {
-                return true;
-            }
-            if (!"minecraft".equals(type.getNamespace())) {
-                LOGGER.debug("[NEB] Forge custom payload dispatch returned false for {}, but namespace is modded; skip vanilla fallback", type);
-                return true;
-            }
-            LOGGER.debug("[NEB] Forge custom payload dispatch returned false for {}, falling back to vanilla custom payload path", type);
-            if (listener != null) {
-                try {
-                    ((Packet<PacketListener>) packet).handle(listener);
-                } catch (RunningOnDifferentThreadException ignored) {
+            if (flow == PacketFlow.CLIENTBOUND && listener instanceof ClientPacketListener) {
+                Packet<?> packet = createCustomPayloadPacket(flow);
+                if (packet instanceof ClientboundCustomPayloadPacket clientboundPacket) {
+                    ((Packet) clientboundPacket).handle(listener);
                     return true;
                 }
-                return true;
+                return false;
             }
-            return false;
+            if (flow == PacketFlow.SERVERBOUND && listener instanceof ServerGamePacketListenerImpl) {
+                Packet<?> packet = createCustomPayloadPacket(flow);
+                if (packet instanceof ServerboundCustomPayloadPacket serverboundPacket) {
+                    ((Packet) serverboundPacket).handle(listener);
+                    return true;
+                }
+                return false;
+            }
+            Packet<?> packet = createCustomPayloadPacket(flow);
+            if (packet == null) {
+                return false;
+            }
+            ((Packet<PacketListener>) packet).handle(listener);
+            return true;
+        } catch (RunningOnDifferentThreadException ignored) {
+            return true;
         } catch (Exception e) {
-            LOGGER.error("[NEB] Failed to dispatch Forge custom payload {}", type, e);
+            LOGGER.error("[NEB] Failed to dispatch custom payload {}", type, e);
             return false;
         }
+    }
+
+    private boolean hasNegotiatedPayloadChannel(Connection connection, ResourceLocation id) {
+        if (id == null) {
+            return false;
+        }
+        var setup = ChannelAttributes.getPayloadSetup(connection);
+        return setup == null || setup.hasChannel(id);
     }
 
     public ByteBuf getData() {

@@ -92,6 +92,16 @@ mixin {
     config 'nebl.mixins.json'
 }
 
+def generatedRefmap = layout.buildDirectory.file('tmp/compileJava/compileJava-refmap.json')
+def packagedRefmap = layout.buildDirectory.file('generated/refmap/nebl.refmap.json')
+
+tasks.register('prepareRefmapForJar', Copy) {
+    dependsOn tasks.named('compileJava')
+    from(generatedRefmap)
+    into(layout.buildDirectory.dir('generated/refmap'))
+    rename { 'nebl.refmap.json' }
+}
+
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
@@ -123,6 +133,10 @@ dependencies {
 }
 
 tasks.named('processResources', ProcessResources).configure {
+    dependsOn tasks.named('compileJava')
+    from(generatedRefmap) {
+        rename { 'nebl.refmap.json' }
+    }
     var replaceProperties = [
             minecraft_version      : minecraft_version,
             minecraft_version_range: minecraft_version_range,
@@ -162,12 +176,22 @@ tasks.withType(Jar).configureEach {
 
 tasks.named('jar', Jar).configure {
     archiveClassifier = 'slim'
+    dependsOn tasks.named('prepareRefmapForJar')
+    from({
+        def file = packagedRefmap.get().asFile
+        return file.exists() ? [file] : []
+    })
     finalizedBy 'reobfJar'
 }
 
 tasks.named('jarJar', Jar).configure {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     archiveClassifier = ''
+    dependsOn tasks.named('prepareRefmapForJar')
+    from({
+        def file = packagedRefmap.get().asFile
+        return file.exists() ? [file] : []
+    })
     finalizedBy 'reobfJarJar'
 }
 

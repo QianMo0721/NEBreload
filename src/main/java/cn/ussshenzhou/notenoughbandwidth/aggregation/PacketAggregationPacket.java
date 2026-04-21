@@ -4,55 +4,76 @@ import cn.ussshenzhou.notenoughbandwidth.ModConstants;
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.config.ConfigHelper;
 import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadCodec;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadContext;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import cn.ussshenzhou.notenoughbandwidth.util.RawTrafficHelper;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import com.mojang.logging.LogUtils;
-import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import net.minecraft.network.Connection;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.network.NetworkEvent;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
-import java.util.function.Supplier;
 
 /**
  * @author USS_Shenzhou
- * Aggregated packet container for Forge 1.20.1.
+ * Aggregated packet container for Forge 1.20.1, progressively aligned with the
+ * NeoForge payload codec model.
  *
  * Wire format (same as NeoForge version):
  * <pre>
- * +-------+------+-------+-------+------+-------+-------+------+...
- * | B     | (S)  |  V0   |  h0   |  s0  |  d0   |  V1   |  h1  |...
+ * +-------+------+-------+------+-------+------+-------+...
+ * | B     | (S)  |  p0   |  s0  |  d0   |  p1   |  s1   |...
  * +-------+------+-------+------+-------+------+-------+...
  *                |----packet 0----+      |----packet 1----+
  *                |---------compressed-----------+
  *
  * B = boolean, whether the payload is compressed
  * S = varint, raw (uncompressed) size – only present when B=true
- * V = boolean, whether this sub-packet is vanilla play packet
- * h = if V=true then varint packet id; otherwise indexed custom payload prefix
+ * p = indexed payload prefix / packet type prefix
  * s = varint, byte length of this sub-packet's data
  * d = raw packet data
  * </pre>
  */
-public class PacketAggregationPacket {
+public class PacketAggregationPacket implements NebPayload {
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "packet_aggregation_packet");
+    public static final PacketAggregationPacket SAMPLE = new PacketAggregationPacket();
+    public static final PayloadCodec<PacketAggregationPacket> CODEC = new PayloadCodec<>() {
+        @Override
+        public void encode(FriendlyByteBuf buf, PacketAggregationPacket payload) {
+            payload.encode(buf);
+        }
+
+        @Override
+        public PacketAggregationPacket decode(FriendlyByteBuf buf) {
+            return new PacketAggregationPacket(buf);
+        }
+    };
 
     private int bakedSize;
 
     // ---------------------------------------- encode ----------------------------------------
-    private static final StackWalker WALKER = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
     private final ArrayList<AggregatedEncodePacket> packetsToEncode;
     private final Connection connection;
+
+    private PacketAggregationPacket() {
+        this.packetsToEncode = null;
+        this.connection = null;
+    }
 
     public PacketAggregationPacket(ArrayList<AggregatedEncodePacket> packetsToEncode, Connection connection) {
         this.packetsToEncode = packetsToEncode;
         this.connection = connection;
+    }
+
+    @Override
+    public ResourceLocation type() {
+        return TYPE;
     }
 
     /**
@@ -74,9 +95,10 @@ public class PacketAggregationPacket {
                 // S – raw size for decompression
                 buffer.writeVarInt(rawSize);
                 var compressed = ZstdHelper.compress(connection, rawBuf);
-                logCompressRatio(rawSize, compressed.readableBytes());
+                int compressedSize = compressed.readableBytes();
+                logCompressRatio(rawSize, compressedSize);
                 buffer.writeBytes(compressed);
-                this.bakedSize = compressed.readableBytes();
+                this.bakedSize = compressedSize;
                 compressed.release();
             } else {
                 buffer.writeBytes(rawBuf);
@@ -110,16 +132,8 @@ public class PacketAggregationPacket {
         var dataBuf = new FriendlyByteBuf(ByteBufAllocator.DEFAULT.buffer());
         try {
             p.encode(dataBuf);
-            raw.writeBoolean(p.isVanillaPacket());
-            if (p.isVanillaPacket()) {
-                raw.writeVarInt(p.getVanillaPacketId());
-            } else {
-                var prefixHelper = CustomPacketPrefixHelper.get().index(p.getType());
-                prefixHelper.save(raw);
-                if (prefixHelper.isIndexed() && p.getType() != null) {
-                    SimpleStatManager.outRaw(RawTrafficHelper.getWriteUtfCost(p.getType()));
-                }
-            }
+            var decodedType = p.getType();
+            CustomPacketPrefixHelper.write(decodedType, raw);
             // s – data length
             raw.writeVarInt(dataBuf.readableBytes());
             // d – data bytes
@@ -141,61 +155,15 @@ public class PacketAggregationPacket {
     }
 
     // ---------------------------------------- handle ----------------------------------------
-    public void handler(Supplier<NetworkEvent.Context> ctxSupplier) {
-        handler(ctxSupplier.get());
-    }
-
-    public void handler(NetworkEvent.Context context) {
-        try {
-            var packetsToHandle = decodeEntries();
-
-            if (ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class).debugLog) {
-                LogUtils.getLogger().debug("[NEB] Handling {} sub-packets", packetsToHandle.size());
-            }
-
-            for (AggregatedDecodePacket pkt : packetsToHandle) {
-                try {
-                    pkt.handle(context);
-                } finally {
-                    pkt.getData().release();
-                }
-            }
-        } catch (Exception e) {
-            LogUtils.getLogger().error("[NEB] Failed to handle aggregation packet", e);
-        } finally {
-            if (data != null) {
-                data.release();
-                data = null;
-            }
-        }
-    }
-
-    public ArrayList<Packet<?>> decodeToPackets(PacketFlow flow) {
-        try {
-            var entries = decodeEntries();
-            var result = new ArrayList<Packet<?>>();
-            for (AggregatedDecodePacket entry : entries) {
-                try {
-                    Packet<?> packet = entry.decode(flow);
-                    if (packet != null) {
-                        result.add(packet);
-                    }
-                } finally {
-                    entry.getData().release();
-                }
-            }
-            return result;
-        } finally {
-            if (data != null) {
-                data.release();
-                data = null;
-            }
+    public void handle(PayloadContext context) {
+        if (context.connection() != null) {
+            replay(context.connection(), context.flow());
         }
     }
 
     public void replay(Connection connection, PacketFlow flow) {
         try {
-            var entries = decodeEntries();
+            var entries = decodeEntries(connection);
             for (AggregatedDecodePacket entry : entries) {
                 try {
                     entry.replay(connection, flow);
@@ -211,8 +179,11 @@ public class PacketAggregationPacket {
         }
     }
 
-    private ArrayList<AggregatedDecodePacket> decodeEntries() {
-        this.bakedSize = data.readableBytes();
+    private ArrayList<AggregatedDecodePacket> decodeEntries(@Nullable Connection decodingConnection) {
+        int payloadReadableBytes = data.readableBytes();
+        if (bakedSize > payloadReadableBytes) {
+            SimpleStatManager.inRaw(bakedSize - payloadReadableBytes);
+        }
 
         boolean compressed = data.readBoolean();
         FriendlyByteBuf raw;
@@ -221,7 +192,12 @@ public class PacketAggregationPacket {
                 throw new IllegalStateException("Received compressed NEB packet but zstd-jni is unavailable on this runtime");
             }
             int rawSize = data.readVarInt();
-            raw = new FriendlyByteBuf(ZstdHelper.decompress(null, data.retainedDuplicate(), rawSize));
+            FriendlyByteBuf compressedView = new FriendlyByteBuf(data.retainedDuplicate());
+            try {
+                raw = new FriendlyByteBuf(ZstdHelper.decompress(decodingConnection, compressedView, rawSize));
+            } finally {
+                compressedView.release();
+            }
         } else {
             raw = new FriendlyByteBuf(data.retainedDuplicate());
         }
@@ -240,27 +216,12 @@ public class PacketAggregationPacket {
     }
 
     private void deAggregatePacket(FriendlyByteBuf buf, ArrayList<AggregatedDecodePacket> out) {
-        boolean vanilla = buf.readBoolean();
-        int vanillaPacketId = -1;
-        ResourceLocation type = null;
-        if (vanilla) {
-            vanillaPacketId = buf.readVarInt();
-        } else {
-            var decodedType = CustomPacketPrefixHelper.read(buf);
-            type = decodedType.type();
-            if (decodedType.indexed() && type != null) {
-                SimpleStatManager.inRaw(RawTrafficHelper.getWriteUtfCost(type));
-            }
-        }
+        ResourceLocation type = CustomPacketPrefixHelper.read(buf);
         // s – data size
         int size = buf.readVarInt();
         // d – data slice (retained so each AggregatedDecodePacket owns its ref)
         var slice = new FriendlyByteBuf(buf.readRetainedSlice(size));
-        if (vanilla) {
-            out.add(new AggregatedDecodePacket(vanillaPacketId, slice));
-        } else {
-            out.add(new AggregatedDecodePacket(type, slice));
-        }
+        out.add(new AggregatedDecodePacket(type, slice));
     }
 
     public int getBakedSize() {
@@ -269,47 +230,5 @@ public class PacketAggregationPacket {
 
     public void setBakedSize(int bakedSize) {
         this.bakedSize = bakedSize;
-    }
-
-    public static int estimateRawSizeFromEncodedWrapper(ByteBuf encodedPacket) {
-        ParsedWrapperStats stats = parseEncodedWrapper(encodedPacket);
-        if (stats == null) {
-            return encodedPacket.writerIndex();
-        }
-        return stats.wrapperOverhead() + stats.rawPayloadSize();
-    }
-
-    public static int estimateWrapperOverheadFromEncodedWrapper(ByteBuf encodedPacket) {
-        ParsedWrapperStats stats = parseEncodedWrapper(encodedPacket);
-        if (stats == null) {
-            return 0;
-        }
-        return stats.wrapperOverhead();
-    }
-
-    private static ParsedWrapperStats parseEncodedWrapper(ByteBuf encodedPacket) {
-        FriendlyByteBuf buf = new FriendlyByteBuf(encodedPacket.duplicate());
-        buf.readerIndex(0);
-        try {
-            int totalSize = buf.writerIndex();
-            buf.readVarInt();
-            ResourceLocation channel = buf.readResourceLocation();
-            if (!TYPE.equals(channel)) {
-                return null;
-            }
-            boolean compressed = buf.readBoolean();
-            if (compressed) {
-                int rawPayloadSize = buf.readVarInt();
-                int compressedPayloadSize = buf.readableBytes();
-                return new ParsedWrapperStats(rawPayloadSize, totalSize - compressedPayloadSize);
-            }
-            int rawPayloadSize = buf.readableBytes();
-            return new ParsedWrapperStats(rawPayloadSize, totalSize - rawPayloadSize);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private record ParsedWrapperStats(int rawPayloadSize, int wrapperOverhead) {
     }
 }
