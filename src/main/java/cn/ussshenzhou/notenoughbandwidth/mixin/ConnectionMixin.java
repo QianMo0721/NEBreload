@@ -36,7 +36,7 @@ public abstract class ConnectionMixin {
     public abstract SocketAddress getRemoteAddress();
 
     @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;Z)V", at = @At("HEAD"), cancellable = true)
-    private void nebwPacketAggregate(Packet<?> packet, @Nullable PacketSendListener listener, boolean flush, CallbackInfo ci) {
+    private void neblPacketAggregate(Packet<?> packet, @Nullable PacketSendListener listener, boolean flush, CallbackInfo ci) {
         //only work on play
         if (this.getRemoteAddress() instanceof LocalAddress || this.packetListener == null || this.packetListener.protocol() != ConnectionProtocol.PLAY) {
             return;

@@ -4,13 +4,13 @@
 
 ## 简介 | Introduction
 
-NEB通过多种方式来尽可能地节省Minecraft游玩过程中产生的流量，并对模组和玩家保持透明。
+NEBL通过多种方式来尽可能地节省Minecraft游玩过程中产生的流量，并对模组和玩家保持透明。
 
-在[TeaCon 甲辰](https://teacon.cn)的土球数据集中，相比未压缩的原始数据，NEB理论上可以将服务器的出站流量减少到原来的7.6%。作为对比，原版默认压缩机制的出站流量是原始数据大小的39%。
+在[TeaCon 甲辰](https://teacon.cn)的土球数据集中，相比未压缩的原始数据，NEBL理论上可以将服务器的出站流量减少到原来的7.6%。作为对比，原版默认压缩机制的出站流量是原始数据大小的39%。
 
-NEB uses various methods to save as much network traffic as possible during Minecraft gameplay, while remaining transparent to both mods and players.
+NEBL uses various methods to save as much network traffic as possible during Minecraft gameplay, while remaining transparent to both mods and players.
 
-In the ZZZZ Dataset from [TeaCon Jiachen](https://teacon.cn), compared to raw uncompressed data, NEB can theoretically reduce the server's outbound traffic to 7.6% of its original size. For comparison, the outbound traffic of Vanilla's default compression mechanism is 39% of the original data size.
+In the ZZZZ Dataset from [TeaCon Jiachen](https://teacon.cn), compared to raw uncompressed data, NEBL can theoretically reduce the server's outbound traffic to 7.6% of its original size. For comparison, the outbound traffic of Vanilla's default compression mechanism is 39% of the original data size.
 
 <img width="1908" height="1908" alt="output" src="https://github.com/user-attachments/assets/5e015031-f6e8-4280-a280-17da859a8615" />
 
@@ -18,9 +18,9 @@ In the ZZZZ Dataset from [TeaCon Jiachen](https://teacon.cn), compared to raw un
 
 In tests conducted in a Vanilla environment, the server outbound traffic was reduced to 18% of its original size. Theoretically, as the number of installed mods increases, the content transmitted over the network becomes larger and more complex, leading to better compression performance.
 
-在游戏中按下Alt+N来简单地查看流量情况。
+在游戏中按下Alt+F8来简单地查看流量情况。
 
-Press Alt+N in-game to easily view the network traffic status.
+Press Alt+F8 in-game to easily view the network traffic status.
 
 <img width="2559" height="1383" alt="image" src="https://github.com/user-attachments/assets/216dea71-dbc7-40f2-8117-d20fcf74cd11" />
 
@@ -125,9 +125,9 @@ Whether to enable compatibility mode. If set to `true`, the `blackList` below wi
 >
 > WORK INDEPENDENTLY ON CLIENT AND SERVER.
 
-兼容模式黑名单。在黑名单中的包会被NEB跳过。默认自带一系列和velocity相关的包，你也可以按需增加新的包。
+兼容模式黑名单。在黑名单中的包会被NEBL跳过。默认自带一系列和velocity相关的包，你也可以按需增加新的包。
 
-The blacklist for compatibility mode. Packets listed here will be skipped by NEB. By default, it includes a list of Velocity-related packets, but you can add new packets as needed.
+The blacklist for compatibility mode. Packets listed here will be skipped by NEBL. By default, it includes a list of Velocity-related packets, but you can add new packets as needed.
 
 > [!WARNING]
 > 为确保包的顺序性，黑名单中的包会打断正在进行的聚合。如果黑名单中有许多的包，或者对应包发送过于频繁，则聚合-压缩的效率会降低。

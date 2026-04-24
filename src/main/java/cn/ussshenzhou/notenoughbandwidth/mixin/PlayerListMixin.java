@@ -15,7 +15,7 @@ public class PlayerListMixin {
             opcode = Opcodes.PUTFIELD,
             shift = At.Shift.AFTER
     ), argsOnly = true)
-    private int modifyViewDistance(int viewDistance) {
+    private int neblModifyViewDistance(int viewDistance) {
         try {
             return viewDistance + NotEnoughBandwidthLegacyConfig.get().dccDistance;
         } catch (IllegalStateException e) {

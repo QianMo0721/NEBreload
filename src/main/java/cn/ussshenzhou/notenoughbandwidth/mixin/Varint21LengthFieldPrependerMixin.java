@@ -21,12 +21,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class Varint21LengthFieldPrependerMixin {
 
     @ModifyConstant(method = "encode(Lio/netty/channel/ChannelHandlerContext;Lio/netty/buffer/ByteBuf;Lio/netty/buffer/ByteBuf;)V", constant = @Constant(intValue = 3), require = 0)
-    private int nebAllowBiggerPacket(int constant) {
+    private int neblAllowBiggerPacket(int constant) {
         return 4;
     }
 
     @Inject(method = "encode(Lio/netty/channel/ChannelHandlerContext;Lio/netty/buffer/ByteBuf;Lio/netty/buffer/ByteBuf;)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/network/VarInt;getByteSize(I)I", shift = At.Shift.AFTER))
-    private void nebCheckPacketSize(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out, CallbackInfo ci, @Local(ordinal = 0) int bodyLength) {
+    private void neblCheckPacketSize(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out, CallbackInfo ci, @Local(ordinal = 0) int bodyLength) {
         int maxSize = NotEnoughBandwidthLegacyConfig.get().getMaxPacketSize();
         if (bodyLength > maxSize) {
             throw new EncoderException("NEB: Packet too large: size " + bodyLength + " is over " + maxSize);

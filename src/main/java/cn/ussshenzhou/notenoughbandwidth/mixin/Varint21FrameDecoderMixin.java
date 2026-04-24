@@ -15,17 +15,17 @@ import org.spongepowered.asm.mixin.injection.*;
 public class Varint21FrameDecoderMixin {
 
     @ModifyConstant(method = "<init>", constant = @Constant(intValue = 3), require = 0)
-    private int nebAllowBiggerPacket0(int constant) {
+    private int neblAllowBiggerPacket0(int constant) {
         return 4;
     }
 
     @ModifyConstant(method = "copyVarint", constant = @Constant(intValue = 3), require = 0)
-    private static int nebAllowBiggerPacket1(int constant) {
+    private static int neblAllowBiggerPacket1(int constant) {
         return 4;
     }
 
     @Redirect(method = "decode", at = @At(value = "INVOKE", target = "Lnet/minecraft/network/VarInt;read(Lio/netty/buffer/ByteBuf;)I"))
-    private int nebCheckPacketSize(ByteBuf buf) {
+    private int neblCheckPacketSize(ByteBuf buf) {
         int length = VarInt.read(buf);
         int maxSize = NotEnoughBandwidthLegacyConfig.get().getMaxPacketSize();
         if (length > maxSize) {

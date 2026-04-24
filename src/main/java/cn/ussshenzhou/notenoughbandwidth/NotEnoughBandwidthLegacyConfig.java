@@ -53,13 +53,18 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add(CommonRegisterPayload.ID.toString());
     }};
 
+    @Expose(serialize = false, deserialize = false)
+    public static final HashSet<String> COMMON_FUZZY_BLOCK_LIST = new HashSet<>() {{
+        add("yes_steve_model:");
+    }};
+
     public static NotEnoughBandwidthLegacyConfig get() {
         return ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class);
     }
 
     public static boolean skipType(String type) {
         var cfg = get();
-        return COMMON_BLOCK_LIST.contains(type) || (cfg.compatibleMode && cfg.blackList.contains(type));
+        return (COMMON_BLOCK_LIST.contains(type) || COMMON_FUZZY_BLOCK_LIST.stream().anyMatch(type::contains)) || (cfg.compatibleMode && cfg.blackList.contains(type));
     }
 
     public int getContextLevel() {

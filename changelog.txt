@@ -1,3 +1,4 @@
-nebl-21.1.01-neoforge+1.21.1:
-change the version rule of the mod;
-Fixed compatibility issue when installing with the Packet Fixer mod, close #15
+nebl-21.1.02-neoforge+1.21.1:
+Default built-in network channel blacklist for the "Yes Steve Model" mod, now the default configuration is compatible with YSM;
+Added startup prompts for completely incompatible mods, preventing the game from continuing;
+Some other adjustments.

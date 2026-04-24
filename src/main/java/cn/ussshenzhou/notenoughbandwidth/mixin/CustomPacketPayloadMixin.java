@@ -23,7 +23,7 @@ public class CustomPacketPayloadMixin {
     ConnectionProtocol val$protocol;
 
     @Redirect(method = "writeCap(Lnet/minecraft/network/FriendlyByteBuf;Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload$Type;Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/network/FriendlyByteBuf;writeResourceLocation(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/network/FriendlyByteBuf;"))
-    private FriendlyByteBuf nebwIndexedHeaderEncode(FriendlyByteBuf buf, ResourceLocation identifier) {
+    private FriendlyByteBuf neblIndexedHeaderEncode(FriendlyByteBuf buf, ResourceLocation identifier) {
         if (val$protocol != ConnectionProtocol.PLAY) {
             buf.writeResourceLocation(identifier);
             return buf;
@@ -36,8 +36,9 @@ public class CustomPacketPayloadMixin {
         CustomPacketPrefixHelper.write(identifier, buf);
         return buf;
     }
+
     @Redirect(method = "decode(Lnet/minecraft/network/FriendlyByteBuf;)Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;", at = @At(value = "INVOKE", target = "Lnet/minecraft/network/FriendlyByteBuf;readResourceLocation()Lnet/minecraft/resources/ResourceLocation;"))
-    private ResourceLocation nebwIndexedHeaderDecode(FriendlyByteBuf buf) {
+    private ResourceLocation neblIndexedHeaderDecode(FriendlyByteBuf buf) {
         if (val$protocol != ConnectionProtocol.PLAY) {
             return buf.readResourceLocation();
         }
