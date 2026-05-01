@@ -3,6 +3,7 @@ package cn.ussshenzhou.notenoughbandwidth.network.payload;
 import net.minecraft.network.Connection;
 import net.minecraft.network.PacketListener;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -37,6 +38,14 @@ public record PayloadContext(
         if (context != null) {
             return context.enqueueWork(runnable);
         }
+        if (listener instanceof ServerGamePacketListenerImpl serverListener) {
+            serverListener.player.server.execute(runnable);
+            return CompletableFuture.completedFuture(null);
+        }
+        if (flow == PacketFlow.CLIENTBOUND) {
+            clientExecute(runnable);
+            return CompletableFuture.completedFuture(null);
+        }
         runnable.run();
         return CompletableFuture.completedFuture(null);
     }
@@ -58,7 +67,9 @@ public record PayloadContext(
             });
             return future;
         }
-        return CompletableFuture.completedFuture(supplier.get());
+        CompletableFuture<T> future = new CompletableFuture<>();
+        enqueueWork(() -> future.complete(supplier.get()));
+        return future;
     }
 
     @Nullable
@@ -84,6 +95,16 @@ public record PayloadContext(
         }
     }
 
+    private static void clientExecute(Runnable runnable) {
+        try {
+            Class<?> minecraftClass = Class.forName("net.minecraft.client.Minecraft");
+            Object minecraft = minecraftClass.getMethod("getInstance").invoke(null);
+            minecraftClass.getMethod("execute", Runnable.class).invoke(minecraft, runnable);
+        } catch (ReflectiveOperationException | LinkageError e) {
+            runnable.run();
+        }
+    }
+
     public void disconnect(Component reason) {
         if (connection != null) {
             connection.disconnect(reason);
@@ -100,5 +121,13 @@ public record PayloadContext(
 
     public void handle(NebPayload payload) {
         PayloadRegistry.dispatchPayload(payload, this);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public void handlePacket(Packet<?> packet) {
+        if (packet == null || listener == null) {
+            return;
+        }
+        ((Packet) packet).handle(listener);
     }
 }

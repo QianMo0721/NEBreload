@@ -42,28 +42,34 @@ public class ServerGamePacketListenerImplMixin {
     @Inject(method = "handleCustomPayload", at = @At("HEAD"), cancellable = true)
     private void nebHandleAggregatedCustomPayload(ServerboundCustomPayloadPacket packet, CallbackInfo ci) {
         if (packet.getIdentifier() != null && PayloadRegistry.contains(packet.getIdentifier())) {
-            FriendlyByteBuf payload = new FriendlyByteBuf(packet.getData().retainedDuplicate());
-            boolean handled = false;
-            try {
-                handled = PayloadRegistry.decodeAndHandle(
-                        packet.getIdentifier(),
-                        payload,
-                        PayloadContext.of(nebConnection(), (PacketListener) (Object) this, PacketFlow.SERVERBOUND)
-                );
-                if (handled) {
-                    ci.cancel();
-                    return;
-                }
-            } finally {
-                if (payload.refCnt() > 0) {
-                    payload.release();
+            FriendlyByteBuf originalPayload = packet.getData();
+            if (originalPayload != null) {
+                FriendlyByteBuf payload = new FriendlyByteBuf(originalPayload.retainedDuplicate());
+                boolean handled = false;
+                try {
+                    handled = PayloadRegistry.decodeAndHandle(
+                            packet.getIdentifier(),
+                            payload,
+                            PayloadContext.of(nebConnection(), (PacketListener) (Object) this, PacketFlow.SERVERBOUND)
+                    );
+                    if (handled) {
+                        ci.cancel();
+                        return;
+                    }
+                } finally {
+                    if (payload.refCnt() > 0) {
+                        payload.release();
+                    }
                 }
             }
         }
-        if (packet.getIdentifier() != null
-                && NotEnoughBandwidthLegacyConfig.shouldKeepCustomPayloadOnNetworkThread(packet.getIdentifier().toString())) {
-            if (NetworkHooks.onCustomPayload(packet, nebConnection())) {
-                LOGGER.debug("[NEB] Dispatched server custom payload through Forge path: {}", packet.getIdentifier());
+        if (packet.getIdentifier() != null) {
+            boolean forceNetworkThread = NotEnoughBandwidthLegacyConfig.shouldKeepCustomPayloadOnNetworkThread(packet.getIdentifier().toString());
+            boolean handledByForge = NetworkHooks.onCustomPayload(packet, nebConnection());
+            if (handledByForge) {
+                LOGGER.debug("[NEB] Dispatched server custom payload through Forge path{}: {}",
+                        forceNetworkThread ? " (forced network thread)" : "",
+                        packet.getIdentifier());
                 ci.cancel();
             }
         }

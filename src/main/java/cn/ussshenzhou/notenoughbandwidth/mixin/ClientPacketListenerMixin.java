@@ -28,27 +28,32 @@ public class ClientPacketListenerMixin {
         }
         if (packet.getIdentifier() != null && PayloadRegistry.contains(packet.getIdentifier())) {
             FriendlyByteBuf payload = packet.getInternalData();
-            boolean handled = false;
-            try {
-                handled = PayloadRegistry.decodeAndHandle(
-                        packet.getIdentifier(),
-                        payload,
-                        PayloadContext.of(connection, (PacketListener) (Object) this, PacketFlow.CLIENTBOUND)
-                );
-                if (handled) {
-                    ci.cancel();
-                    return;
-                }
-            } finally {
-                if (payload.refCnt() > 0) {
-                    payload.release();
+            if (payload != null) {
+                boolean handled = false;
+                try {
+                    handled = PayloadRegistry.decodeAndHandle(
+                            packet.getIdentifier(),
+                            payload,
+                            PayloadContext.of(connection, (PacketListener) (Object) this, PacketFlow.CLIENTBOUND)
+                    );
+                    if (handled) {
+                        ci.cancel();
+                        return;
+                    }
+                } finally {
+                    if (payload.refCnt() > 0) {
+                        payload.release();
+                    }
                 }
             }
         }
-        if (packet.getIdentifier() != null
-                && NotEnoughBandwidthLegacyConfig.shouldKeepCustomPayloadOnNetworkThread(packet.getIdentifier().toString())) {
-            if (NetworkHooks.onCustomPayload(packet, connection)) {
-                LOGGER.debug("[NEB] Dispatched client custom payload through Forge path: {}", packet.getIdentifier());
+        if (packet.getIdentifier() != null) {
+            boolean forceNetworkThread = NotEnoughBandwidthLegacyConfig.shouldKeepCustomPayloadOnNetworkThread(packet.getIdentifier().toString());
+            boolean handledByForge = NetworkHooks.onCustomPayload(packet, connection);
+            if (handledByForge) {
+                LOGGER.debug("[NEB] Dispatched client custom payload through Forge path{}: {}",
+                        forceNetworkThread ? " (forced network thread)" : "",
+                        packet.getIdentifier());
                 ci.cancel();
             }
         }

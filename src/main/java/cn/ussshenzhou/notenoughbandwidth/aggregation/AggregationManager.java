@@ -1,5 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -56,7 +57,7 @@ public class AggregationManager {
     public synchronized static void takeOver(Packet<?> packet, Connection connection) {
         var type = PacketUtil.getTrueType(packet);
         PACKET_BUFFER.computeIfAbsent(connection, k -> new ArrayList<>())
-                .add(new AggregatedEncodePacket(packet, type));
+                .add(new AggregatedEncodePacket(packet, type, connection.getSending()));
     }
 
     public synchronized static void flushConnection(Connection connection) {
@@ -97,25 +98,66 @@ public class AggregationManager {
     }
 
     private static void flushBatch(Connection connection, ArrayList<AggregatedEncodePacket> packets) {
+        if (packets == null || packets.isEmpty()) {
+            return;
+        }
+        int maxPacketSize = NotEnoughBandwidthLegacyConfig.get().getMaxPacketSize();
+        int estimatedSize = estimateAggregatePayloadSize(packets);
+        if (estimatedSize > maxPacketSize) {
+            splitOrPassthrough(connection, packets, maxPacketSize);
+            return;
+        }
         try {
             PayloadRegistry.send(connection, connection.getSending(), new PacketAggregationPacket(packets, connection));
         } catch (IllegalArgumentException e) {
             if (!isPayloadTooLarge(e)) {
                 throw e;
             }
-            if (packets.size() <= 1) {
-                passthroughSingle(connection, packets.isEmpty() ? null : packets.get(0));
+            splitOrPassthrough(connection, packets, maxPacketSize);
+        }
+    }
+
+    private static int estimateAggregatePayloadSize(ArrayList<AggregatedEncodePacket> packets) {
+        int total = 1;
+        for (AggregatedEncodePacket packet : packets) {
+            total += Math.max(0, packet.getEncodedSizeEstimate());
+        }
+        return total;
+    }
+
+    private static void splitOrPassthrough(Connection connection, ArrayList<AggregatedEncodePacket> packets, int maxPacketSize) {
+        if (packets.size() <= 1) {
+            passthroughSingle(connection, packets.isEmpty() ? null : packets.get(0));
+            return;
+        }
+
+        ArrayList<AggregatedEncodePacket> current = new ArrayList<>();
+        int currentSize = 1;
+        for (AggregatedEncodePacket packet : packets) {
+            int packetSize = Math.max(1, packet.getEncodedSizeEstimate());
+            if (!current.isEmpty() && currentSize + packetSize > maxPacketSize) {
+                flushBatch(connection, new ArrayList<>(current));
+                current.clear();
+                currentSize = 1;
+            }
+            current.add(packet);
+            currentSize += packetSize;
+        }
+
+        if (!current.isEmpty()) {
+            if (current.size() == packets.size()) {
+                int mid = packets.size() / 2;
+                flushBatch(connection, new ArrayList<>(packets.subList(0, mid)));
+                flushBatch(connection, new ArrayList<>(packets.subList(mid, packets.size())));
                 return;
             }
-            int mid = packets.size() / 2;
-            flushBatch(connection, new ArrayList<>(packets.subList(0, mid)));
-            flushBatch(connection, new ArrayList<>(packets.subList(mid, packets.size())));
+            flushBatch(connection, current);
         }
     }
 
     private static boolean isPayloadTooLarge(IllegalArgumentException e) {
         String message = e.getMessage();
-        return message != null && message.contains("Payload may not be larger than");
+        return message != null && (message.contains("Payload may not be larger than") || message.contains("NEB: Packet too large"));
     }
 
     private static void passthroughSingle(Connection connection, @Nullable AggregatedEncodePacket packet) {

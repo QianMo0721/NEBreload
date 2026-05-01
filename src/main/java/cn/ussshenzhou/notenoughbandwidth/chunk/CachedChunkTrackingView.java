@@ -79,13 +79,14 @@ public class CachedChunkTrackingView implements ChunkTrackingViewCompat {
             return;
         }
 
-        ObjectIterator<Long2ObjectMap.Entry<CacheEntry>> it = Long2ObjectMaps.fastIterator(cachedView.cache);
-        while (it.hasNext()) {
-            Long2ObjectMap.Entry<CacheEntry> entry = it.next();
-            ChunkPos chunkPos = new ChunkPos(ChunkPos.getX(entry.getLongKey()), ChunkPos.getZ(entry.getLongKey()));
-            context.removeTicket(chunkPos);
-            context.stopChunkTracking(chunkPos);
-        }
+        java.util.HashSet<Long> cleared = new java.util.HashSet<>();
+        cachedView.forEach(chunkPos -> {
+            long packed = chunkPos.toLong();
+            if (cleared.add(packed)) {
+                context.removeTicket(chunkPos);
+                context.stopChunkTracking(chunkPos);
+            }
+        });
         cachedView.cache.clear();
     }
 

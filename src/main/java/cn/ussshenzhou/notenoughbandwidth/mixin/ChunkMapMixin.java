@@ -17,12 +17,11 @@ import org.apache.commons.lang3.mutable.MutableObject;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author USS_Shenzhou
@@ -43,19 +42,8 @@ public abstract class ChunkMapMixin {
     private static volatile Field neb$distanceManagerField;
 
     @Unique
-    private static volatile Method neb$getPlayersMethod;
-
-    @Unique
     private static volatile Method neb$updateChunkTrackingMethod;
 
-    @Unique
-    private static final Map<Integer, TicketType<Integer>> NEB_CACHE_TICKETS = new ConcurrentHashMap<>();
-
-    @Unique
-    private static TicketType<Integer> getCacheTicketType(int ticks) {
-        return NEB_CACHE_TICKETS.computeIfAbsent(ticks,
-                t -> TicketType.create("neb_cache_" + t, Integer::compare, t));
-    }
 
     @Unique
     private static int nebCacheTicketTicks() {
@@ -163,26 +151,6 @@ public abstract class ChunkMapMixin {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    @Unique
-    private java.util.List<ServerPlayer> nebGetPlayers(ChunkPos pos, boolean boundaryOnly) {
-        try {
-            Method method = neb$getPlayersMethod;
-            if (method == null) {
-                try {
-                    method = ChunkMap.class.getDeclaredMethod("getPlayers", ChunkPos.class, boolean.class);
-                } catch (NoSuchMethodException ignored) {
-                    method = ChunkMap.class.getDeclaredMethod("m_183262_", ChunkPos.class, boolean.class);
-                }
-                method.setAccessible(true);
-                neb$getPlayersMethod = method;
-            }
-            return (java.util.List<ServerPlayer>) method.invoke(this, pos, boundaryOnly);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Failed to resolve ChunkMap getPlayers method", e);
-        }
-    }
-
     @Unique
     private void nebInvokeUpdateChunkTracking(
             ServerPlayer player,
@@ -223,10 +191,15 @@ public abstract class ChunkMapMixin {
     }
 
     @Unique
+    private TicketType<Integer> nebCacheTicketType() {
+        int ticks = nebCacheTicketTicks();
+        return TicketType.create("neb_cache_" + ticks, Integer::compare, ticks);
+    }
+
+    @Unique
     private void nebRemoveCacheTicket(ChunkPos pos) {
-        for (Map.Entry<Integer, TicketType<Integer>> entry : NEB_CACHE_TICKETS.entrySet()) {
-            nebDistanceManager().removeRegionTicket(entry.getValue(), pos, 1, entry.getKey());
-        }
+        int ticks = nebCacheTicketTicks();
+        nebDistanceManager().removeRegionTicket(nebCacheTicketType(), pos, 1, ticks);
     }
 
     @Unique
@@ -261,8 +234,8 @@ public abstract class ChunkMapMixin {
 
             @Override
             public void putTicket(ChunkPos pos, int ticks) {
-                TicketType<Integer> type = getCacheTicketType(Math.max(1, ticks));
-                nebDistanceManager().addRegionTicket(type, pos, 1, ticks);
+                int clampedTicks = Math.max(1, ticks);
+                nebDistanceManager().addRegionTicket(nebCacheTicketType(), pos, 1, clampedTicks);
             }
 
             @Override
@@ -293,8 +266,24 @@ public abstract class ChunkMapMixin {
         CachedChunkTrackingView.onUpdateChunkTracking(player, nebViewDistance(), nebChunkTrackingContext(player));
     }
 
-    @Inject(method = "updatePlayerStatus", at = @At("HEAD"))
-    private void nebBeforeUpdatePlayerStatus(ServerPlayer player, boolean added, CallbackInfo ci) {
+    @Redirect(
+            method = "updatePlayerStatus",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V"
+            )
+    )
+    private void nebRedirectUpdateChunkTrackingInUpdatePlayerStatus(
+            ChunkMap instance,
+            ServerPlayer player,
+            ChunkPos pos,
+            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
+            boolean wasInRange,
+            boolean isInRange
+    ) {
+        if (!nebCacheEnabled()) {
+            nebInvokeUpdateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+        }
     }
 
     @Inject(method = "updatePlayerStatus", at = @At("TAIL"))
@@ -308,6 +297,26 @@ public abstract class ChunkMapMixin {
             return;
         }
         nebUpdateChunkTrackingView(player);
+    }
+
+    @Redirect(
+            method = "move",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V"
+            )
+    )
+    private void nebRedirectUpdateChunkTrackingInMove(
+            ChunkMap instance,
+            ServerPlayer player,
+            ChunkPos pos,
+            MutableObject<ClientboundLevelChunkWithLightPacket> packetHolder,
+            boolean wasInRange,
+            boolean isInRange
+    ) {
+        if (!nebCacheEnabled()) {
+            nebInvokeUpdateChunkTracking(player, pos, packetHolder, wasInRange, isInRange);
+        }
     }
 
     @Inject(method = "move", at = @At("TAIL"))
@@ -333,6 +342,7 @@ public abstract class ChunkMapMixin {
             for (ServerPlayer player : nebLevel().players()) {
                 nebUpdateChunkTrackingView(player);
             }
+            ci.cancel();
             return;
         }
 

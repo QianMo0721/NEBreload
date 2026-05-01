@@ -25,10 +25,10 @@ import java.util.ArrayList;
  * Aggregated packet container for Forge 1.20.1, progressively aligned with the
  * NeoForge payload codec model.
  *
- * Wire format (same as NeoForge version):
+ * Wire format (same high-level idea as NeoForge payload aggregation):
  * <pre>
  * +-------+------+-------+------+-------+------+-------+...
- * | B     | (S)  |  p0   |  s0  |  d0   |  p1   |  s1   |...
+ * | B     | (S)  |  p0   |  s0  |  d0   |  p1  |  s1   |...
  * +-------+------+-------+------+-------+------+-------+...
  *                |----packet 0----+      |----packet 1----+
  *                |---------compressed-----------+
@@ -124,7 +124,9 @@ public class PacketAggregationPacket implements NebPayload {
 
     /**
      * Encode a single sub-packet.
-     * Format: [prefix(p)] [size(s)] [data(d)]
+     * Format: [vanilla(v)] [header(h)] [size(s)] [data(d)]
+     * – if v=true, h is the vanilla PLAY packet id
+     * – if v=false, h is the payload type prefix
      * – size covers only the data bytes.
      */
     private static void encodeSubPacket(FriendlyByteBuf raw, AggregatedEncodePacket p) {
@@ -132,8 +134,13 @@ public class PacketAggregationPacket implements NebPayload {
         var dataBuf = new FriendlyByteBuf(ByteBufAllocator.DEFAULT.buffer());
         try {
             p.encode(dataBuf);
-            var decodedType = p.getType();
-            CustomPacketPrefixHelper.write(decodedType, raw);
+            raw.writeBoolean(p.isVanillaPacket());
+            if (p.isVanillaPacket()) {
+                raw.writeVarInt(p.getVanillaPacketId());
+            } else {
+                var decodedType = p.getType();
+                CustomPacketPrefixHelper.write(decodedType, raw);
+            }
             // s – data length
             raw.writeVarInt(dataBuf.readableBytes());
             // d – data bytes
@@ -216,12 +223,23 @@ public class PacketAggregationPacket implements NebPayload {
     }
 
     private void deAggregatePacket(FriendlyByteBuf buf, ArrayList<AggregatedDecodePacket> out) {
-        ResourceLocation type = CustomPacketPrefixHelper.read(buf);
+        boolean vanilla = buf.readBoolean();
+        int vanillaPacketId = -1;
+        ResourceLocation type = null;
+        if (vanilla) {
+            vanillaPacketId = buf.readVarInt();
+        } else {
+            type = CustomPacketPrefixHelper.read(buf);
+        }
         // s – data size
         int size = buf.readVarInt();
         // d – data slice (retained so each AggregatedDecodePacket owns its ref)
         var slice = new FriendlyByteBuf(buf.readRetainedSlice(size));
-        out.add(new AggregatedDecodePacket(type, slice));
+        if (vanilla) {
+            out.add(new AggregatedDecodePacket(vanillaPacketId, slice));
+        } else {
+            out.add(new AggregatedDecodePacket(type, slice));
+        }
     }
 
     public int getBakedSize() {

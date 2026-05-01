@@ -23,7 +23,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import javax.annotation.Nullable;
-import java.net.SocketAddress;
 
 /**
  * @author USS_Shenzhou
@@ -47,33 +46,17 @@ public abstract class ConnectionMixin {
         if (currentProtocol != ConnectionProtocol.PLAY || ConnectionProtocol.getProtocolForPacket(packet) != ConnectionProtocol.PLAY) {
             return;
         }
-        if (packet instanceof BundlePacket<?> bundlePacket) {
-            if (shouldBypassBundlePacket(bundlePacket)) {
-                AggregationManager.flushConnection(connection);
-            }
-            bundlePacket.subPackets().forEach(p -> connection.send(p, listener));
-            ci.cancel();
-            return;
-        }
         if (shouldSkipAggregation(packet)) {
             AggregationManager.flushConnection(connection);
             return;
         }
+        if (packet instanceof BundlePacket<?> bundlePacket) {
+            bundlePacket.subPackets().forEach(p -> connection.send(p, listener));
+            ci.cancel();
+            return;
+        }
         AggregationManager.takeOver(packet, connection);
         ci.cancel();
-    }
-
-    @Unique
-    private static boolean shouldBypassBundlePacket(Packet<?> packet) {
-        if (!(packet instanceof BundlePacket<?> bundlePacket)) {
-            return false;
-        }
-        for (Packet<?> subPacket : bundlePacket.subPackets()) {
-            if (shouldSkipAggregation(subPacket)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Unique

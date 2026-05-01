@@ -1,7 +1,8 @@
 package cn.ussshenzhou.notenoughbandwidth.indextype;
 
-import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
+import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.NetworkPayloadSetup;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import com.mojang.logging.LogUtils;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
@@ -232,7 +233,7 @@ public class NamespaceIndexManager {
             init(List.of());
             return;
         }
-        init(new ArrayList<>(setup.channels().keySet()));
+        init(new ArrayList<>(setup.getChannels(net.minecraft.network.ConnectionProtocol.PLAY).keySet()));
     }
 
     public synchronized static void init(List<ResourceLocation> types) {
@@ -269,11 +270,15 @@ public class NamespaceIndexManager {
         sorted.sort(Comparator.comparing(ResourceLocation::getNamespace).thenComparing(ResourceLocation::getPath));
         sorted.forEach(type -> {
             var registration = PayloadRegistry.getRegistration(type);
-            if (registration == null || registration.optional()) {
+            if (registration == null || registration.optional() || isInternalAggregationTransport(type)) {
                 return;
             }
             fillSingle(namespaceIndex, type);
         });
+    }
+
+    private static boolean isInternalAggregationTransport(ResourceLocation type) {
+        return PacketAggregationPacket.TYPE.equals(type);
     }
 
     private static List<ResourceLocation> buildNegotiatedPayloadTypes(java.util.Map<ResourceLocation, String> remoteChannels) {

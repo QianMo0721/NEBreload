@@ -30,7 +30,8 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     @SerializedName(value = "兼容模式黑名单", alternate = {"blackList"})
     public HashSet<String> blackList = new HashSet<>() {{
-        // 原项目默认就把这批与时序/状态同步强相关的数据包放进兼容模式黑名单。
+        // 这里只保留“仅在兼容模式下额外直通”的包；无条件必须直通的包统一收口到
+        // COMMON_BLOCK_LIST，如果这些出问题就加入黑名单
         add("minecraft:command_suggestion");
         add("minecraft:command_suggestions");
         add("minecraft:commands");
@@ -40,18 +41,6 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:chat_session_update");
         add("minecraft:player_info_update");
         add("minecraft:player_info_remove");
-        add("minecraft:move_player_pos");
-        add("minecraft:move_player_pos_rot");
-        add("minecraft:move_player_rot");
-        add("minecraft:move_player_status_only");
-        add("minecraft:container_click");
-        add("minecraft:container_button_click");
-        add("minecraft:container_slot_state_changed");
-        add("minecraft:use_item");
-        add("minecraft:use_item_on");
-        add("minecraft:interact");
-        add("minecraft:player_action");
-        add("minecraft:accept_teleportation");
     }};
 
     @SerializedName("说明-保持网络线程分发的自定义包")
@@ -167,6 +156,7 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:move_player_rot");
         add("minecraft:move_player_status_only");
         add("minecraft:accept_teleportation");
+        add("minecraft:client_command");
         add("minecraft:player_action");
         add("minecraft:interact");
         add("minecraft:use_item");
@@ -174,7 +164,42 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:container_click");
         add("minecraft:container_button_click");
         add("minecraft:container_slot_state_changed");
-        // Forge play channel 承载实体生成与容器打开等框架级 payload，格式由 Forge
+        add("minecraft:container_set_content");
+        add("minecraft:container_set_slot");
+        add("minecraft:container_set_data");
+        add("minecraft:container_close");
+        add("minecraft:open_screen");
+        add("minecraft:horse_screen_open");
+        add("minecraft:mount_screen_open");
+        add("minecraft:merchant_offers");
+        add("minecraft:place_ghost_recipe");
+        add("minecraft:place_recipe");
+        add("minecraft:select_trade");
+        add("minecraft:recipe_book_change_settings");
+        add("minecraft:recipe_book_seen_recipe");
+        add("minecraft:update_recipes");
+        add("minecraft:set_carried_item");
+        add("minecraft:set_held_slot");
+        // Respawn and death-recovery flows are highly timing-sensitive, especially
+        // when mods like gravestone/tombstone inject extra state sync right after
+        // respawn. Keep these packets on the passthrough path to avoid delaying the
+        // client reinitialization sequence behind the aggregation flush window.
+        add("minecraft:respawn");
+        add("minecraft:game_event");
+        add("minecraft:initialize_border");
+        add("minecraft:set_time");
+        add("minecraft:change_difficulty");
+        add("minecraft:set_default_spawn_position");
+        add("minecraft:player_position");
+        add("minecraft:player_abilities");
+        add("minecraft:set_health");
+        add("minecraft:set_experience");
+        add("minecraft:update_mob_effect");
+        add("minecraft:remove_mob_effect");
+        // Stonecutter and other menu screens depend on immediate container/menu
+        // synchronization. These packets must bypass aggregation even when
+        // compatibleMode is off, otherwise the client can observe stale input
+        // state and render no available recipes.
         // 自己解释，不能再叠加 NEB 的 transparent custom-payload 压缩，否则会在
         // 对端网络层先于 Minecraft 逻辑解析时读到 NEBZSTD1 魔数。
         add("fml:play");
@@ -250,12 +275,18 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         if (type == null || type.isEmpty()) {
             return false;
         }
+        int split = type.indexOf(':');
+        String namespace = split >= 0 ? type.substring(0, split) : type;
+        // Simple Voice Chat Forge 1.20.1 客户端网络监听明确要求 custom payload
+        // 在非主线程到达，否则会直接丢弃 clientbound 事件，导致 secret 握手收不到。
+        // 这里对 voicechat 命名空间做硬保证，不依赖用户配置是否保留默认项。
+        if ("voicechat".equals(namespace)) {
+            return true;
+        }
         var cfg = get();
         if (cfg.keepCustomPayloadOnNetworkThread.contains(type)) {
             return true;
         }
-        int split = type.indexOf(':');
-        String namespace = split >= 0 ? type.substring(0, split) : type;
         return cfg.keepCustomPayloadOnNetworkThread.contains(namespace);
     }
 

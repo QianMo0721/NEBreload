@@ -1,12 +1,10 @@
 package cn.ussshenzhou.notenoughbandwidth.util;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
-import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
-import net.minecraft.network.ConnectionProtocol;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
@@ -20,12 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class PacketUtil {
 
-    // Cache: packet class -> ResourceLocation id
     private static final ConcurrentHashMap<Class<?>, ResourceLocation> TYPE_CACHE = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<Class<?>, ResourceLocation> VANILLA_PACKET_IDS = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<ResourceLocation, Integer> VANILLA_CLIENTBOUND_PACKET_IDS = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<ResourceLocation, Integer> VANILLA_SERVERBOUND_PACKET_IDS = new ConcurrentHashMap<>();
-    private static volatile boolean vanillaPacketIdsInitialized = false;
     private static final Map<String, String> VANILLA_NAME_OVERRIDES = Map.ofEntries(
             Map.entry("net.minecraft.network.protocol.game.ClientboundHorseScreenOpenPacket", "mount_screen_open"),
             Map.entry("net.minecraft.network.protocol.game.ClientboundRecipePacket", "update_recipes"),
@@ -41,11 +34,10 @@ public class PacketUtil {
     /**
      * Get the true ResourceLocation type of a Packet.
      * Order:
-     * 1) For vanilla CustomPayload packets, read getIdentifier() directly.
-     * 2) Use explicit vanilla packet mappings derived from ConnectionProtocol.
-     * 3) Reflectively call type().id() if available.
-     * 4) For NEB-registered packets use the registration map.
-     * 5) Fallback to class-name-derived minecraft:snake_case.
+     * 1) For vanilla CustomPayload packets, read the payload identifier directly.
+     * 2) Reflectively call Packet#type().id() when available.
+     * 3) For NEB transport packet, use the registered payload id explicitly.
+     * 4) Fallback to class-name-derived minecraft:snake_case.
      */
     public static ResourceLocation getTrueType(Packet<?> packet) {
         if (packet instanceof ClientboundCustomPayloadPacket clientbound) {
@@ -55,12 +47,6 @@ public class PacketUtil {
             return serverbound.getIdentifier();
         }
         return TYPE_CACHE.computeIfAbsent(packet.getClass(), cls -> {
-            ResourceLocation vanilla = getVanillaPacketId(cls);
-            if (vanilla != null) {
-                return vanilla;
-            }
-
-            // Try Packet#type().id() via reflection
             try {
                 Method typeMethod = cls.getMethod("type");
                 Object packetType = typeMethod.invoke(packet);
@@ -82,62 +68,18 @@ public class PacketUtil {
         });
     }
 
-    private static ResourceLocation getVanillaPacketId(Class<?> cls) {
-        ensureVanillaPacketIds();
-        return VANILLA_PACKET_IDS.get(cls);
-    }
-
-    private static synchronized void ensureVanillaPacketIds() {
-        if (vanillaPacketIdsInitialized) {
-            return;
-        }
-        registerVanillaPackets(PacketFlow.CLIENTBOUND);
-        registerVanillaPackets(PacketFlow.SERVERBOUND);
-        vanillaPacketIdsInitialized = true;
-    }
-
-    private static void registerVanillaPackets(PacketFlow flow) {
-        var packetsByIds = ConnectionProtocol.PLAY.getPacketsByIds(flow);
-        for (var entry : packetsByIds.entrySet()) {
-            Class<? extends Packet<?>> packetClass = entry.getValue();
-            ResourceLocation packetId = buildVanillaPacketId(packetClass);
-            VANILLA_PACKET_IDS.putIfAbsent(packetClass, packetId);
-            if (packetId != null) {
-                if (flow == PacketFlow.CLIENTBOUND) {
-                    VANILLA_CLIENTBOUND_PACKET_IDS.putIfAbsent(packetId, entry.getKey());
-                } else {
-                    VANILLA_SERVERBOUND_PACKET_IDS.putIfAbsent(packetId, entry.getKey());
-                }
-            }
-        }
-    }
-
-    public static int getVanillaPacketId(PacketFlow flow, ResourceLocation type) {
-        if (type == null) {
-            return -1;
-        }
-        ensureVanillaPacketIds();
-        Integer id = flow == PacketFlow.CLIENTBOUND
-                ? VANILLA_CLIENTBOUND_PACKET_IDS.get(type)
-                : VANILLA_SERVERBOUND_PACKET_IDS.get(type);
-        return id == null ? -1 : id;
-    }
-
-    private static ResourceLocation buildVanillaPacketId(Class<?> cls) {
+    private static ResourceLocation fallbackPacketId(Class<?> cls) {
         String override = VANILLA_NAME_OVERRIDES.get(cls.getName());
         if (override != null) {
             return ResourceLocation.fromNamespaceAndPath("minecraft", override);
         }
-
         String simpleName = cls.getSimpleName();
         simpleName = stripDirectionalPrefix(simpleName);
         if (simpleName.endsWith("Packet")) {
             simpleName = simpleName.substring(0, simpleName.length() - "Packet".length());
         }
-        if (simpleName.isEmpty()) {
-            return null;
-        }
-        return ResourceLocation.fromNamespaceAndPath("minecraft", toSnakeCase(simpleName));
+        String path = toSnakeCase(simpleName);
+        return ResourceLocation.fromNamespaceAndPath("minecraft", path);
     }
 
     private static String stripDirectionalPrefix(String simpleName) {
@@ -150,38 +92,46 @@ public class PacketUtil {
         return simpleName;
     }
 
-    private static ResourceLocation fallbackPacketId(Class<?> cls) {
-        String simpleName = cls.getSimpleName();
-        if (simpleName.endsWith("Packet")) {
-            simpleName = simpleName.substring(0, simpleName.length() - "Packet".length());
-        }
-        String path = toSnakeCase(simpleName);
-        return ResourceLocation.fromNamespaceAndPath("minecraft", path);
-    }
-
     /**
      * Get the "true" packet object.
-     * For Forge 1.20.1 game custom payload packets, prefer decoding registered
-     * NEB payloads so upper layers can reason about the payload object directly,
-     * similar to the NeoForge branch.
+     *
+     * After removing the legacy vanilla bridge transport, this helper is only
+     * used by traffic-stat mixins to detect the internal aggregation payload.
+     * Keep business custom payloads as the original Minecraft packet object so
+     * upper layers stay closer to the NeoForge branch semantics.
      */
     public static Object getTruePacket(Packet<?> packet) {
         if (packet instanceof ClientboundCustomPayloadPacket clientbound) {
-            if (clientbound.getIdentifier() != null && PayloadRegistry.contains(clientbound.getIdentifier())) {
-                FriendlyByteBuf payload = new FriendlyByteBuf(clientbound.getInternalData().retainedDuplicate());
-                NebPayload decoded = decodeRegisteredPayload(clientbound.getIdentifier(), payload, true);
-                if (decoded != null) {
-                    return decoded;
+            if (PacketAggregationPacket.TYPE.equals(clientbound.getIdentifier())) {
+                FriendlyByteBuf payloadCopy = clientbound.getInternalData();
+                if (payloadCopy != null) {
+                    try {
+                        FriendlyByteBuf payload = new FriendlyByteBuf(payloadCopy.retainedDuplicate());
+                        NebPayload decoded = decodeRegisteredPayload(clientbound.getIdentifier(), payload, true);
+                        if (decoded != null) {
+                            return decoded;
+                        }
+                    } finally {
+                        if (payloadCopy.refCnt() > 0) {
+                            payloadCopy.release();
+                        }
+                    }
                 }
             }
             return packet;
         }
         if (packet instanceof ServerboundCustomPayloadPacket serverbound) {
-            if (serverbound.getIdentifier() != null && PayloadRegistry.contains(serverbound.getIdentifier())) {
+            if (PacketAggregationPacket.TYPE.equals(serverbound.getIdentifier())) {
                 FriendlyByteBuf payload = new FriendlyByteBuf(serverbound.getData().retainedDuplicate());
-                NebPayload decoded = decodeRegisteredPayload(serverbound.getIdentifier(), payload, true);
-                if (decoded != null) {
-                    return decoded;
+                try {
+                    NebPayload decoded = decodeRegisteredPayload(serverbound.getIdentifier(), payload, true);
+                    if (decoded != null) {
+                        return decoded;
+                    }
+                } finally {
+                    if (payload.refCnt() > 0) {
+                        payload.release();
+                    }
                 }
             }
             return packet;

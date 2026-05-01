@@ -1,5 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.network.payload;
 
+import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.Connection;
 import net.minecraft.network.FriendlyByteBuf;
@@ -42,11 +43,18 @@ public final class PayloadRegistry {
     public static NetworkPayloadSetup buildSetup(@Nullable Map<ResourceLocation, String> negotiatedChannels) {
         NetworkPayloadSetup setup = NetworkPayloadSetup.empty();
         for (PayloadRegistration<?> registration : REGISTRATIONS.values()) {
+            if (isInternalTransport(registration.id())) {
+                continue;
+            }
             if (negotiatedChannels == null || negotiatedChannels.containsKey(registration.id())) {
                 setup.register(registration);
             }
         }
         return setup;
+    }
+
+    private static boolean isInternalTransport(ResourceLocation id) {
+        return PacketAggregationPacket.TYPE.equals(id);
     }
 
     @SuppressWarnings("unchecked")
@@ -73,28 +81,24 @@ public final class PayloadRegistry {
             return;
         }
         FriendlyByteBuf payloadBuf = new FriendlyByteBuf(Unpooled.buffer());
+        FriendlyByteBuf packetBuf = null;
+        boolean transferred = false;
         try {
             encode(payloadBuf, payload);
-            FriendlyByteBuf packetBuf = new FriendlyByteBuf(Unpooled.buffer());
+            packetBuf = new FriendlyByteBuf(Unpooled.buffer());
+            packetBuf.writeResourceLocation(payload.type());
+            packetBuf.writeBytes(payloadBuf, payloadBuf.readerIndex(), payloadBuf.readableBytes());
             if (flow == PacketFlow.CLIENTBOUND) {
-                try {
-                    packetBuf.writeResourceLocation(payload.type());
-                    packetBuf.writeBytes(payloadBuf, payloadBuf.readerIndex(), payloadBuf.readableBytes());
-                    connection.send(new ClientboundCustomPayloadPacket(packetBuf));
-                } finally {
-                    packetBuf.release();
-                }
+                connection.send(new ClientboundCustomPayloadPacket(packetBuf));
             } else {
-                try {
-                    packetBuf.writeResourceLocation(payload.type());
-                    packetBuf.writeBytes(payloadBuf, payloadBuf.readerIndex(), payloadBuf.readableBytes());
-                    connection.send(new ServerboundCustomPayloadPacket(packetBuf));
-                } finally {
-                    packetBuf.release();
-                }
+                connection.send(new ServerboundCustomPayloadPacket(packetBuf));
             }
+            transferred = true;
         } finally {
             payloadBuf.release();
+            if (!transferred && packetBuf != null && packetBuf.refCnt() > 0) {
+                packetBuf.release();
+            }
         }
     }
 

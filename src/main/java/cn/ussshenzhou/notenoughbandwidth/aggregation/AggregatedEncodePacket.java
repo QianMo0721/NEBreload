@@ -1,11 +1,13 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
+import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.Connection;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
@@ -24,22 +26,31 @@ public class AggregatedEncodePacket {
     private final Packet<?> packet;
     @Nullable
     private final ResourceLocation type;
+    private final int vanillaPacketId;
     @Nullable
     private final NebPayload payload;
     @Nullable
     private final FriendlyByteBuf customPayloadData;
 
-    public AggregatedEncodePacket(Packet<?> packet, @Nullable ResourceLocation type) {
-        this.type = type;
-        this.payload = decodeRegisteredPayload(packet, type);
-        if (this.payload != null) {
+    public AggregatedEncodePacket(Packet<?> packet, @Nullable ResourceLocation type, PacketFlow flow) {
+        NebPayload decodedPayload = decodeRegisteredPayload(packet, type);
+        if (decodedPayload != null) {
             this.packet = null;
+            this.type = type;
+            this.vanillaPacketId = -1;
+            this.payload = decodedPayload;
             this.customPayloadData = null;
         } else if (packet instanceof ClientboundCustomPayloadPacket || packet instanceof ServerboundCustomPayloadPacket) {
             this.packet = null;
+            this.type = type;
+            this.vanillaPacketId = -1;
+            this.payload = null;
             this.customPayloadData = captureCustomPayloadData(packet);
         } else {
             this.packet = packet;
+            this.type = type;
+            this.vanillaPacketId = ConnectionProtocol.PLAY.getPacketId(flow, packet);
+            this.payload = null;
             this.customPayloadData = null;
         }
     }
@@ -60,13 +71,10 @@ public class AggregatedEncodePacket {
             }
         }
         if (packet instanceof ServerboundCustomPayloadPacket serverbound) {
-            FriendlyByteBuf payloadBuf = serverbound.getData();
+            FriendlyByteBuf payloadBuf = new FriendlyByteBuf(serverbound.getData().retainedDuplicate());
             try {
                 return PayloadRegistry.decode(type, payloadBuf);
             } finally {
-                // serverbound 原始 payload 最终仍会由 vanilla handle 路径回收，
-                // 这里 decode 使用的是 getData() 返回值，若该返回值是独立副本则释放，
-                // 若不是独立副本则 refCnt 保护可避免额外崩溃。
                 if (payloadBuf.refCnt() > 0) {
                     payloadBuf.release();
                 }
@@ -107,8 +115,9 @@ public class AggregatedEncodePacket {
 
     /**
      * Encode only the payload body for game custom-payload packets, because the
-     * aggregated prefix already carries the channel identifier. For normal
-     * vanilla packets, mirror PacketEncoder by delegating to Packet#write.
+     * aggregated container already carries the channel identifier. Vanilla
+     * packets write their original PLAY body directly and are identified by the
+     * separate vanilla packet id in the aggregated entry header.
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
     public void encode(ByteBuf buf) {
@@ -141,18 +150,76 @@ public class AggregatedEncodePacket {
         return packet;
     }
 
+    public boolean isVanillaPacket() {
+        return packet != null;
+    }
+
+    public int getVanillaPacketId() {
+        return vanillaPacketId;
+    }
+
+    public int getEncodedSizeEstimate() {
+        int dataSize = getPayloadBodySizeEstimate();
+        if (dataSize <= 0) {
+            return dataSize;
+        }
+        int headerSize = 1 + FriendlyByteBuf.getVarIntSize(dataSize);
+        if (isVanillaPacket()) {
+            return headerSize + FriendlyByteBuf.getVarIntSize(vanillaPacketId) + dataSize;
+        }
+        if (type == null) {
+            return dataSize;
+        }
+        return headerSize + getTypePrefixSize(type) + dataSize;
+    }
+
+    private int getPayloadBodySizeEstimate() {
+        if (customPayloadData != null) {
+            return customPayloadData.readableBytes();
+        }
+        FriendlyByteBuf sizeProbe = new FriendlyByteBuf(Unpooled.buffer());
+        try {
+            if (payload != null) {
+                PayloadRegistry.encode(sizeProbe, payload);
+                return sizeProbe.readableBytes();
+            }
+            if (packet != null) {
+                packet.write(sizeProbe);
+                return sizeProbe.readableBytes();
+            }
+            return 0;
+        } finally {
+            sizeProbe.release();
+        }
+    }
+
+    private static int getTypePrefixSize(ResourceLocation type) {
+        FriendlyByteBuf sizeProbe = new FriendlyByteBuf(Unpooled.buffer());
+        try {
+            CustomPacketPrefixHelper.write(type, sizeProbe);
+            return sizeProbe.readableBytes();
+        } finally {
+            sizeProbe.release();
+        }
+    }
+
     private void writePayloadBytes(ByteBuf out, FriendlyByteBuf payloadBuf) {
         out.writeBytes(payloadBuf, payloadBuf.readerIndex(), payloadBuf.readableBytes());
     }
 
     public void sendPassthrough(Connection connection, PacketFlow flow) {
         try {
+            if (packet != null) {
+                connection.send(packet);
+                return;
+            }
             if (payload != null) {
                 PayloadRegistry.send(connection, flow, payload);
                 return;
             }
             if (customPayloadData != null && type != null) {
                 FriendlyByteBuf packetBuf = new FriendlyByteBuf(Unpooled.buffer());
+                boolean transferred = false;
                 try {
                     packetBuf.writeResourceLocation(type);
                     packetBuf.writeBytes(customPayloadData, customPayloadData.readerIndex(), customPayloadData.readableBytes());
@@ -161,13 +228,12 @@ public class AggregatedEncodePacket {
                     } else {
                         connection.send(new ServerboundCustomPayloadPacket(packetBuf));
                     }
+                    transferred = true;
                 } finally {
-                    packetBuf.release();
+                    if (!transferred && packetBuf.refCnt() > 0) {
+                        packetBuf.release();
+                    }
                 }
-                return;
-            }
-            if (packet != null) {
-                connection.send(packet);
             }
         } catch (Exception e) {
             LogUtils.getLogger().error("[NEB] Skipped: Failed to passthrough packet " + type, e);

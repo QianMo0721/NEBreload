@@ -13,6 +13,8 @@ import java.nio.ByteBuffer;
  * @author USS_Shenzhou
  */
 public class Context implements Closeable {
+    private static final boolean GRAALVM = isGraalVm();
+
     private final ZstdCompressCtx compressCtx;
     private final ZstdDecompressCtx decompressCtx;
     private final boolean useContext;
@@ -34,7 +36,7 @@ public class Context implements Closeable {
 
     public ByteBuffer compress(ByteBuffer raw) {
         ByteBuffer directRaw = ensureDirect(raw);
-        if (useContext) {
+        if (useContext && !GRAALVM) {
             int maxCompressedSize = (int) Zstd.compressBound(directRaw.remaining());
             ByteBuffer compressed = ByteBuffer.allocateDirect(maxCompressedSize);
             compressCtx.compressDirectByteBufferStream(compressed, directRaw, EndDirective.FLUSH);
@@ -46,6 +48,9 @@ public class Context implements Closeable {
 
     public ByteBuffer decompress(ByteBuffer compressed, int originalSize) {
         ByteBuffer directCompressed = ensureDirect(compressed);
+        if (GRAALVM) {
+            return decompressCtx.decompress(directCompressed, originalSize);
+        }
         ByteBuffer decompressed = ByteBuffer.allocateDirect(originalSize);
         decompressCtx.decompressDirectByteBufferStream(decompressed, directCompressed);
         decompressed.flip();
@@ -61,6 +66,14 @@ public class Context implements Closeable {
         direct.put(slice);
         direct.flip();
         return direct;
+    }
+
+    private static boolean isGraalVm() {
+        String vmName = System.getProperty("java.vm.name", "");
+        String vmVendor = System.getProperty("java.vm.vendor", "");
+        String runtimeName = System.getProperty("java.runtime.name", "");
+        String combined = (vmName + " " + vmVendor + " " + runtimeName).toLowerCase(java.util.Locale.ROOT);
+        return combined.contains("graalvm");
     }
 
     @Override
