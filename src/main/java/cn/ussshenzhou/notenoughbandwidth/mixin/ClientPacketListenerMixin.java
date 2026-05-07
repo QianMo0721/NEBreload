@@ -1,7 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import com.mojang.logging.LogUtils;
-import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadContext;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -48,12 +47,9 @@ public class ClientPacketListenerMixin {
             }
         }
         if (packet.getIdentifier() != null) {
-            boolean forceNetworkThread = NotEnoughBandwidthLegacyConfig.shouldKeepCustomPayloadOnNetworkThread(packet.getIdentifier().toString());
             boolean handledByForge = NetworkHooks.onCustomPayload(packet, connection);
             if (handledByForge) {
-                LOGGER.debug("[NEB] Dispatched client custom payload through Forge path{}: {}",
-                        forceNetworkThread ? " (forced network thread)" : "",
-                        packet.getIdentifier());
+                LOGGER.debug("[NEB] Dispatched client custom payload through Forge path: {}", packet.getIdentifier());
                 ci.cancel();
             }
         }

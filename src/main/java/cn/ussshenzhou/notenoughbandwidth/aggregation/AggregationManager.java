@@ -3,9 +3,11 @@ package cn.ussshenzhou.notenoughbandwidth.aggregation;
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
+import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mojang.logging.LogUtils;
 import net.minecraft.network.Connection;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.Packet;
 
@@ -23,6 +25,13 @@ import java.util.concurrent.TimeUnit;
 public class AggregationManager {
     private static final int CLIENTBOUND_CUSTOM_PAYLOAD_LIMIT = 1024 * 1024;
     private static final int SERVERBOUND_CUSTOM_PAYLOAD_LIMIT = 32767;
+    private static final int VELOCITY_DEFAULT_PLUGIN_MESSAGE_PAYLOAD_LIMIT = 32767;
+    /**
+     * zstd-jni writes a small magicless frame/block header even when content-size and magic are disabled.
+     * The NeoForge implementation relies on GenericPacketSplitter for this safety margin; Forge 1.20.1 does
+     * not provide an equivalent generic serverbound splitter, so reserve it in our batch estimator.
+     */
+    private static final int ZSTD_MAGICLESS_FLUSH_OVERHEAD = 8;
     private static final ThreadLocal<Boolean> INTERNAL_SEND = ThreadLocal.withInitial(() -> false);
     private static final WeakHashMap<Connection, ArrayList<AggregatedEncodePacket>> PACKET_BUFFER = new WeakHashMap<>();
     private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(
@@ -43,6 +52,7 @@ public class AggregationManager {
             return;
         }
         initialized = false;
+        releaseAllBufferedPackets();
         PACKET_BUFFER.clear();
         TASKS.forEach(task -> task.cancel(false));
         TASKS.clear();
@@ -61,47 +71,77 @@ public class AggregationManager {
     }
 
     public synchronized static void flushConnection(Connection connection) {
-        PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
+        removeDisconnectedConnections();
         flushInternal(connection, PACKET_BUFFER.get(connection));
     }
 
     private synchronized static void flush() {
-        PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
+        removeDisconnectedConnections();
         PACKET_BUFFER.forEach(AggregationManager::flushInternal);
     }
 
     private synchronized static void flushInternal(
             Connection connection,
             @Nullable ArrayList<AggregatedEncodePacket> packets) {
+        ArrayList<AggregatedEncodePacket> sendPackets = null;
         try {
             if (packets == null || packets.isEmpty()) {
                 return;
             }
 
             if (connection.channel() == null || !connection.isConnected()) {
+                releaseBufferedPackets(packets);
                 return;
             }
 
-            var sendPackets = new ArrayList<>(packets);
+            sendPackets = new ArrayList<>(packets);
+            ArrayList<AggregatedEncodePacket> packetsToSend = sendPackets;
             runInternalSend(() -> {
-                flushBatch(connection, sendPackets);
+                flushBatch(connection, packetsToSend);
                 if (connection.channel() != null) {
                     connection.channel().flush();
                 }
             });
             packets.clear();
-            sendPackets.forEach(AggregatedEncodePacket::release);
         } catch (Exception e) {
-            packets.clear();
+            if (packets != null) {
+                releaseBufferedPackets(packets);
+            }
             LogUtils.getLogger().error("[NEB] Skipped: Failed to flush packets.", e);
+        } finally {
+            if (sendPackets != null) {
+                sendPackets.forEach(AggregatedEncodePacket::release);
+            }
         }
+    }
+
+    private static void removeDisconnectedConnections() {
+        PACKET_BUFFER.entrySet().removeIf(e -> {
+            if (!e.getKey().isConnected()) {
+                releaseBufferedPackets(e.getValue());
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private static void releaseAllBufferedPackets() {
+        PACKET_BUFFER.values().forEach(AggregationManager::releaseBufferedPackets);
+    }
+
+    private static void releaseBufferedPackets(@Nullable ArrayList<AggregatedEncodePacket> packets) {
+        if (packets == null || packets.isEmpty()) {
+            return;
+        }
+        packets.forEach(AggregatedEncodePacket::release);
+        packets.clear();
     }
 
     private static void flushBatch(Connection connection, ArrayList<AggregatedEncodePacket> packets) {
         if (packets == null || packets.isEmpty()) {
             return;
         }
-        int maxPacketSize = NotEnoughBandwidthLegacyConfig.get().getMaxPacketSize();
+        int maxPacketSize = getEffectiveTransportPayloadLimit(connection.getSending());
         int estimatedSize = estimateAggregatePayloadSize(packets);
         if (estimatedSize > maxPacketSize) {
             splitOrPassthrough(connection, packets, maxPacketSize);
@@ -117,8 +157,29 @@ public class AggregationManager {
         }
     }
 
+    private static int getEffectiveTransportPayloadLimit(PacketFlow flow) {
+        int configuredLimit = NotEnoughBandwidthLegacyConfig.get().getMaxPacketSize();
+        int vanillaLimit = flow == PacketFlow.CLIENTBOUND ? getClientboundTransportPayloadLimit() : SERVERBOUND_CUSTOM_PAYLOAD_LIMIT;
+        return Math.min(configuredLimit, vanillaLimit);
+    }
+
+    private static int getClientboundTransportPayloadLimit() {
+        if (NotEnoughBandwidthLegacyConfig.get().isVelocityProxyCompatibleMode()) {
+            return VELOCITY_DEFAULT_PLUGIN_MESSAGE_PAYLOAD_LIMIT;
+        }
+        return CLIENTBOUND_CUSTOM_PAYLOAD_LIMIT;
+    }
+
     private static int estimateAggregatePayloadSize(ArrayList<AggregatedEncodePacket> packets) {
-        int total = 1;
+        int rawSize = estimateAggregateRawSize(packets);
+        if (rawSize >= 32 && ZstdHelper.isAvailable()) {
+            return 1 + FriendlyByteBuf.getVarIntSize(rawSize) + rawSize + ZSTD_MAGICLESS_FLUSH_OVERHEAD;
+        }
+        return 1 + rawSize;
+    }
+
+    private static int estimateAggregateRawSize(ArrayList<AggregatedEncodePacket> packets) {
+        int total = 0;
         for (AggregatedEncodePacket packet : packets) {
             total += Math.max(0, packet.getEncodedSizeEstimate());
         }
@@ -132,16 +193,18 @@ public class AggregationManager {
         }
 
         ArrayList<AggregatedEncodePacket> current = new ArrayList<>();
-        int currentSize = 1;
+        int currentRawSize = 0;
         for (AggregatedEncodePacket packet : packets) {
             int packetSize = Math.max(1, packet.getEncodedSizeEstimate());
-            if (!current.isEmpty() && currentSize + packetSize > maxPacketSize) {
+            int nextRawSize = currentRawSize + packetSize;
+            if (!current.isEmpty() && estimateAggregatePayloadSizeForRawSize(nextRawSize) > maxPacketSize) {
                 flushBatch(connection, new ArrayList<>(current));
                 current.clear();
-                currentSize = 1;
+                currentRawSize = 0;
+                nextRawSize = packetSize;
             }
             current.add(packet);
-            currentSize += packetSize;
+            currentRawSize = nextRawSize;
         }
 
         if (!current.isEmpty()) {
@@ -153,6 +216,13 @@ public class AggregationManager {
             }
             flushBatch(connection, current);
         }
+    }
+
+    private static int estimateAggregatePayloadSizeForRawSize(int rawSize) {
+        if (rawSize >= 32 && ZstdHelper.isAvailable()) {
+            return 1 + FriendlyByteBuf.getVarIntSize(rawSize) + rawSize + ZSTD_MAGICLESS_FLUSH_OVERHEAD;
+        }
+        return 1 + rawSize;
     }
 
     private static boolean isPayloadTooLarge(IllegalArgumentException e) {

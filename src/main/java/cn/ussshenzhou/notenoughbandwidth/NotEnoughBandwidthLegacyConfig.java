@@ -25,6 +25,12 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     @SerializedName(value = "兼容模式", alternate = {"compatibleMode"})
     public boolean compatibleMode = false;
 
+    @SerializedName("说明-Velocity代理兼容模式")
+    public String commentVelocityProxyCompatibleMode = "经过 Velocity 代理进入 Forge 子服时建议开启。开启后，NEB 的 clientbound 自定义 payload 聚合包会按 Velocity 默认 plugin message 上限拆分，避免代理端解码时因 payload 超过 32767 字节断开连接。serverbound 在 Forge 1.20.1 本身就是 32767 上限，不受此项额外影响。若您安装了增加数据包上限的mod,且无Velocity需求,应关闭此项";
+
+    @SerializedName(value = "Velocity代理兼容模式", alternate = {"velocityProxyCompatibleMode"})
+    public boolean velocityProxyCompatibleMode = true;
+
     @SerializedName("说明-兼容模式黑名单")
     public String commentBlackList = "仅在兼容模式开启时生效。列表内容为需要强制跳过聚合的数据包类型标识。默认会包含一批已知的时序敏感包；这些包会先触发 flush 再直通，以尽量避免 mod/代理兼容问题。";
 
@@ -268,7 +274,11 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         if (type.startsWith("voicechat:")) {
             return true;
         }
-        return COMMON_BLOCK_LIST.contains(type) || (cfg.compatibleMode && cfg.blackList.contains(type));
+        // 经过 Velocity/VC 代理进入 Forge 子服时，命令补全、聊天签名、玩家列表等
+        // 自定义/时序敏感同步更容易被 flush 周期扰乱。即使用户未显式开启兼容模式，
+        // 只要启用了 Velocity 代理兼容模式，也应自动套用这批额外直通名单。
+        boolean proxySensitiveBypass = cfg.velocityProxyCompatibleMode && cfg.blackList.contains(type);
+        return COMMON_BLOCK_LIST.contains(type) || proxySensitiveBypass || (cfg.compatibleMode && cfg.blackList.contains(type));
     }
 
     public static boolean shouldKeepCustomPayloadOnNetworkThread(String type) {
@@ -357,5 +367,9 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     public boolean shouldUseZstdContextForPlayer(String playerUuid) {
         return playerUuid == null || !playersDoNotUseContext.contains(playerUuid);
+    }
+
+    public boolean isVelocityProxyCompatibleMode() {
+        return velocityProxyCompatibleMode;
     }
 }

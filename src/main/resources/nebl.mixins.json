@@ -15,7 +15,8 @@
     "ChunkMapMixin",
     "PlayerListMixin",
     "ServerPlayerChunkTrackingViewMixin",
-    "ServerGamePacketListenerImplMixin"
+    "ServerGamePacketListenerImplMixin",
+    "CustomPacketPayloadMixin"
   ],
   "client": [
     "ClientPacketListenerMixin"

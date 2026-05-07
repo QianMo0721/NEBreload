@@ -12,6 +12,7 @@ import net.minecraft.util.Tuple;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.loading.FMLEnvironment;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -269,8 +270,7 @@ public class NamespaceIndexManager {
         var sorted = new ArrayList<>(types.stream().distinct().toList());
         sorted.sort(Comparator.comparing(ResourceLocation::getNamespace).thenComparing(ResourceLocation::getPath));
         sorted.forEach(type -> {
-            var registration = PayloadRegistry.getRegistration(type);
-            if (registration == null || registration.optional() || isInternalAggregationTransport(type)) {
+            if (type == null || isInternalAggregationTransport(type)) {
                 return;
             }
             fillSingle(namespaceIndex, type);
@@ -338,14 +338,24 @@ public class NamespaceIndexManager {
         return new Tuple<>(namespaceId, PATH_MAPS.get(namespaceId).getInt(type.getPath()));
     }
 
-    public static ResourceLocation getIdentifier(int namespaceIndex, int pathIndex) {
-        if (!initialized) {
+    @Nullable
+    public static ResourceLocation getIdentifierOrNull(int namespaceIndex, int pathIndex) {
+        if (!initialized || namespaceIndex <= 0 || namespaceIndex >= NAMESPACES.size()) {
             return null;
         }
-        if (namespaceIndex == 0) {
-            throw new UnsupportedOperationException("namespaceIndex should not be 0");
+        ArrayList<String> paths = PATHS.get(namespaceIndex);
+        if (pathIndex < 0 || pathIndex >= paths.size()) {
+            return null;
         }
-        return ResourceLocation.fromNamespaceAndPath(NAMESPACES.get(namespaceIndex), PATHS.get(namespaceIndex).get(pathIndex));
+        return ResourceLocation.fromNamespaceAndPath(NAMESPACES.get(namespaceIndex), paths.get(pathIndex));
+    }
+
+    public static ResourceLocation getIdentifier(int namespaceIndex, int pathIndex) {
+        ResourceLocation id = getIdentifierOrNull(namespaceIndex, pathIndex);
+        if (id == null) {
+            throw new IndexOutOfBoundsException("Invalid NEB indexed payload prefix: namespace=" + namespaceIndex + ", path=" + pathIndex);
+        }
+        return id;
     }
 
     public static boolean canAggregate(ResourceLocation type) {

@@ -2,6 +2,7 @@ package cn.ussshenzhou.notenoughbandwidth.util;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.HandlerThread;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NebTransportSetupPayload;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistrar;
 
 /**
@@ -15,6 +16,11 @@ public class ModNetworkRegistry {
                 PacketAggregationPacket.SAMPLE,
                 PacketAggregationPacket.CODEC,
                 PacketAggregationPacket::handle
+        );
+        networkThreadRegistrar.playBidirectional(
+                NebTransportSetupPayload.REQUEST,
+                NebTransportSetupPayload.CODEC,
+                NebTransportSetupPayload::handle
         );
     }
 

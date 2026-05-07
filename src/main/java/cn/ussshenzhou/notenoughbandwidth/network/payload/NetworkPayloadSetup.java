@@ -31,6 +31,11 @@ public final class NetworkPayloadSetup {
                 .put(registration.id(), new NetworkChannel(registration.id(), registration.version()));
     }
 
+    public void register(ResourceLocation id, String version) {
+        channels.computeIfAbsent(ConnectionProtocol.PLAY, protocol -> new HashMap<>())
+                .put(id, new NetworkChannel(id, version));
+    }
+
     public boolean hasChannel(ResourceLocation id) {
         return channels.values().stream().anyMatch(map -> map.containsKey(id));
     }

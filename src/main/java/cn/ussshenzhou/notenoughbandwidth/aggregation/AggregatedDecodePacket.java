@@ -4,8 +4,10 @@ import cn.ussshenzhou.notenoughbandwidth.network.payload.ChannelAttributes;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadContext;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
+import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.objects.Object2IntArrayMap;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.Connection;
 import net.minecraft.network.ConnectionProtocol;
@@ -29,6 +31,11 @@ import javax.annotation.Nullable;
 @SuppressWarnings({"rawtypes", "unchecked"})
 public class AggregatedDecodePacket {
     private static final org.slf4j.Logger LOGGER = LogUtils.getLogger();
+    private static final Object2IntArrayMap<ResourceLocation> VANILLA_TO_ID = new Object2IntArrayMap<>();
+
+    static {
+        VANILLA_TO_ID.defaultReturnValue(-1);
+    }
 
     @Nullable
     private final ResourceLocation type;
@@ -100,18 +107,36 @@ public class AggregatedDecodePacket {
     }
 
     private Packet<?> createVanillaPacket(PacketFlow flow) {
-        if (vanillaPacketId < 0) {
+        int packetId = vanillaPacketId >= 0 ? vanillaPacketId : getVanillaPacketId(flow);
+        if (packetId < 0) {
             return null;
         }
         FriendlyByteBuf buf = new FriendlyByteBuf(data.retainedDuplicate());
         try {
-            return ConnectionProtocol.PLAY.createPacket(flow, vanillaPacketId, buf);
+            return ConnectionProtocol.PLAY.createPacket(flow, packetId, buf);
         } catch (Exception e) {
-            LOGGER.debug("[NEB] createVanillaPacket failed for {} / {}: {}", vanillaPacketId, type, e.getMessage());
+            LOGGER.debug("[NEB] createVanillaPacket failed for {} / {}: {}", packetId, type, e.getMessage());
             return null;
         } finally {
             buf.release();
         }
+    }
+
+    private int getVanillaPacketId(PacketFlow flow) {
+        if (type == null) {
+            return -1;
+        }
+        updateVanillaIdMap(flow);
+        return VANILLA_TO_ID.getInt(type);
+    }
+
+    private static void updateVanillaIdMap(PacketFlow flow) {
+        var packetsByIds = ConnectionProtocol.PLAY.getPacketsByIds(flow);
+        if (packetsByIds.size() == VANILLA_TO_ID.size()) {
+            return;
+        }
+        VANILLA_TO_ID.clear();
+        packetsByIds.forEach((id, packetClass) -> VANILLA_TO_ID.put(PacketUtil.getTrueType(packetClass), id));
     }
 
     private Packet<?> createCustomPayloadPacket(PacketFlow flow) {

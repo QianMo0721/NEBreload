@@ -93,16 +93,17 @@ public class PacketAggregationPacket implements NebPayload {
             buffer.writeBoolean(compress);
             if (compress) {
                 // S – raw size for decompression
+                int rawSizeVarIntSize = FriendlyByteBuf.getVarIntSize(rawSize);
                 buffer.writeVarInt(rawSize);
                 var compressed = ZstdHelper.compress(connection, rawBuf);
                 int compressedSize = compressed.readableBytes();
                 logCompressRatio(rawSize, compressedSize);
                 buffer.writeBytes(compressed);
-                this.bakedSize = compressedSize;
+                this.bakedSize = 1 + rawSizeVarIntSize + compressedSize;
                 compressed.release();
             } else {
                 buffer.writeBytes(rawBuf);
-                this.bakedSize = rawSize;
+                this.bakedSize = 1 + rawSize;
             }
 
             if (ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class).debugLog) {
@@ -229,7 +230,11 @@ public class PacketAggregationPacket implements NebPayload {
         if (vanilla) {
             vanillaPacketId = buf.readVarInt();
         } else {
-            type = CustomPacketPrefixHelper.read(buf);
+            CustomPacketPrefixHelper.DecodedTypeInfo info = CustomPacketPrefixHelper.readInfo(buf);
+            if (!info.valid()) {
+                throw new IllegalArgumentException("Invalid NEB indexed payload prefix in aggregated packet");
+            }
+            type = info.type();
         }
         // s – data size
         int size = buf.readVarInt();

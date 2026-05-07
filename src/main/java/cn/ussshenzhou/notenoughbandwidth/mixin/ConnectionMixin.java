@@ -2,6 +2,8 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
+import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.ChannelAttributes;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.channel.local.LocalAddress;
 import net.minecraft.network.Connection;
@@ -43,7 +45,12 @@ public abstract class ConnectionMixin {
         if (currentProtocol == null) {
             return;
         }
+
+        // Forge20.1里,PLAY期前后,Forge自身握手残留,代理/补丁链路插入包,以及Connection.send()被调用时机不干净,很容易出现判定错误,不能按原先的移植,只能这样写了
         if (currentProtocol != ConnectionProtocol.PLAY || ConnectionProtocol.getProtocolForPacket(packet) != ConnectionProtocol.PLAY) {
+            return;
+        }
+        if (!hasNegotiatedNebTransport(connection)) {
             return;
         }
         if (shouldSkipAggregation(packet)) {
@@ -60,18 +67,14 @@ public abstract class ConnectionMixin {
     }
 
     @Unique
-    private static boolean shouldSkipAggregation(Packet<?> packet) {
-        var type = PacketUtil.getTrueType(packet);
-        return type == null || shouldAlwaysBypassAggregation(packet) || NotEnoughBandwidthLegacyConfig.skipType(type.toString());
+    private static boolean hasNegotiatedNebTransport(Connection connection) {
+        var setup = ChannelAttributes.getPayloadSetup(connection);
+        return setup != null && setup.hasChannel(PacketAggregationPacket.TYPE);
     }
 
     @Unique
-    private static boolean shouldAlwaysBypassAggregation(Packet<?> packet) {
-        return packet instanceof ClientboundAddEntityPacket
-                || packet instanceof ClientboundMoveEntityPacket
-                || packet instanceof ClientboundTeleportEntityPacket
-                || packet instanceof ClientboundSetEntityMotionPacket
-                || packet instanceof ClientboundRemoveEntitiesPacket
-                || packet instanceof ClientboundBlockUpdatePacket;
+    private static boolean shouldSkipAggregation(Packet<?> packet) {
+        var type = PacketUtil.getTrueType(packet);
+        return type == null || NotEnoughBandwidthLegacyConfig.skipType(type.toString());
     }
 }

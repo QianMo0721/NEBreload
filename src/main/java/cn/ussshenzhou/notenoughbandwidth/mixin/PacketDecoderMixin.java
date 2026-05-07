@@ -6,7 +6,6 @@ import cn.ussshenzhou.notenoughbandwidth.util.EncodedTrafficStatHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.PacketDecoder;
 import net.minecraft.network.protocol.Packet;
 import org.spongepowered.asm.mixin.Mixin;

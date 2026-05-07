@@ -48,7 +48,7 @@ public class Context implements Closeable {
 
     public ByteBuffer decompress(ByteBuffer compressed, int originalSize) {
         ByteBuffer directCompressed = ensureDirect(compressed);
-        if (GRAALVM) {
+        if (!useContext || GRAALVM) {
             return decompressCtx.decompress(directCompressed, originalSize);
         }
         ByteBuffer decompressed = ByteBuffer.allocateDirect(originalSize);

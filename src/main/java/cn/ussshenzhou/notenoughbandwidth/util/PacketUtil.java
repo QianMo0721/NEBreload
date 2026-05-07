@@ -68,6 +68,15 @@ public class PacketUtil {
         });
     }
 
+    public static ResourceLocation getTrueType(Class<?> packetClass) {
+        return TYPE_CACHE.computeIfAbsent(packetClass, cls -> {
+            if (PacketAggregationPacket.class == cls) {
+                return PacketAggregationPacket.TYPE;
+            }
+            return fallbackPacketId(cls);
+        });
+    }
+
     private static ResourceLocation fallbackPacketId(Class<?> cls) {
         String override = VANILLA_NAME_OVERRIDES.get(cls.getName());
         if (override != null) {
@@ -106,8 +115,7 @@ public class PacketUtil {
                 FriendlyByteBuf payloadCopy = clientbound.getInternalData();
                 if (payloadCopy != null) {
                     try {
-                        FriendlyByteBuf payload = new FriendlyByteBuf(payloadCopy.retainedDuplicate());
-                        NebPayload decoded = decodeRegisteredPayload(clientbound.getIdentifier(), payload, true);
+                        NebPayload decoded = decodeRegisteredPayload(clientbound.getIdentifier(), payloadCopy);
                         if (decoded != null) {
                             return decoded;
                         }
@@ -124,7 +132,7 @@ public class PacketUtil {
             if (PacketAggregationPacket.TYPE.equals(serverbound.getIdentifier())) {
                 FriendlyByteBuf payload = new FriendlyByteBuf(serverbound.getData().retainedDuplicate());
                 try {
-                    NebPayload decoded = decodeRegisteredPayload(serverbound.getIdentifier(), payload, true);
+                    NebPayload decoded = decodeRegisteredPayload(serverbound.getIdentifier(), payload);
                     if (decoded != null) {
                         return decoded;
                     }
@@ -139,14 +147,8 @@ public class PacketUtil {
         return packet;
     }
 
-    private static NebPayload decodeRegisteredPayload(ResourceLocation id, FriendlyByteBuf payload, boolean releasePayload) {
-        try {
-            return PayloadRegistry.decode(id, payload);
-        } finally {
-            if (releasePayload && payload.refCnt() > 0) {
-                payload.release();
-            }
-        }
+    private static NebPayload decodeRegisteredPayload(ResourceLocation id, FriendlyByteBuf payload) {
+        return PayloadRegistry.decode(id, payload);
     }
 
     /**

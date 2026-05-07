@@ -1,6 +1,5 @@
 package cn.ussshenzhou.notenoughbandwidth.network.payload;
 
-import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.Connection;
 import net.minecraft.network.FriendlyByteBuf;
@@ -8,14 +7,18 @@ import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraftforge.network.NetworkRegistry;
+import net.minecraftforge.network.event.EventNetworkChannel;
 
 import javax.annotation.Nullable;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 public final class PayloadRegistry {
     private static final Map<ResourceLocation, PayloadRegistration<?>> REGISTRATIONS = new ConcurrentHashMap<>();
+    private static final Map<ResourceLocation, EventNetworkChannel> FORGE_CHANNELS = new ConcurrentHashMap<>();
 
     private PayloadRegistry() {
     }
@@ -25,6 +28,21 @@ public final class PayloadRegistry {
         if (previous != null) {
             throw new IllegalStateException("Duplicate payload registration: " + registration.id());
         }
+        registerForgeChannel(registration);
+    }
+
+    private static void registerForgeChannel(PayloadRegistration<?> registration) {
+        FORGE_CHANNELS.computeIfAbsent(registration.id(), id -> NetworkRegistry.ChannelBuilder
+                .named(id)
+                .networkProtocolVersion(registration::version)
+                .clientAcceptedVersions(buildAcceptedVersions(registration))
+                .serverAcceptedVersions(buildAcceptedVersions(registration))
+                .eventNetworkChannel());
+    }
+
+    private static Predicate<String> buildAcceptedVersions(PayloadRegistration<?> registration) {
+        Predicate<String> exactVersion = registration.version()::equals;
+        return registration.optional() ? NetworkRegistry.acceptMissingOr(exactVersion) : exactVersion;
     }
 
     @Nullable
@@ -40,21 +58,23 @@ public final class PayloadRegistry {
         return REGISTRATIONS.containsKey(id);
     }
 
+    public static NetworkPayloadSetup buildTransportOnlySetup() {
+        NetworkPayloadSetup setup = NetworkPayloadSetup.empty();
+        PayloadRegistration<?> registration = REGISTRATIONS.get(cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket.TYPE);
+        if (registration != null) {
+            setup.register(registration);
+        }
+        return setup;
+    }
+
     public static NetworkPayloadSetup buildSetup(@Nullable Map<ResourceLocation, String> negotiatedChannels) {
         NetworkPayloadSetup setup = NetworkPayloadSetup.empty();
         for (PayloadRegistration<?> registration : REGISTRATIONS.values()) {
-            if (isInternalTransport(registration.id())) {
-                continue;
-            }
             if (negotiatedChannels == null || negotiatedChannels.containsKey(registration.id())) {
                 setup.register(registration);
             }
         }
         return setup;
-    }
-
-    private static boolean isInternalTransport(ResourceLocation id) {
-        return PacketAggregationPacket.TYPE.equals(id);
     }
 
     @SuppressWarnings("unchecked")

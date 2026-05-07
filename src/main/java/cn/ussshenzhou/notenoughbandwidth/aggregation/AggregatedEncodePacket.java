@@ -102,7 +102,6 @@ public class AggregatedEncodePacket {
             }
             FriendlyByteBuf copy = new FriendlyByteBuf(Unpooled.buffer(payload.readableBytes()));
             copy.writeBytes(payload, payload.readerIndex(), payload.readableBytes());
-            payload.release();
             return copy;
         }
         return null;

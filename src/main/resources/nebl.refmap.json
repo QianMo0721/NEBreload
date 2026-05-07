@@ -1,0 +1,46 @@
+{
+  "mappings": {
+    "cn/ussshenzhou/notenoughbandwidth/mixin/ConnectionMixin": {
+      "send": "Lnet/minecraft/network/Connection;m_243124_(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V"
+    },
+    "cn/ussshenzhou/notenoughbandwidth/mixin/PlayerListMixin": {
+      "setViewDistance": "Lnet/minecraft/server/players/PlayerList;m_11217_(I)V"
+    },
+    "cn/ussshenzhou/notenoughbandwidth/mixin/ChunkMapMixin": {
+      "setViewDistance": "Lnet/minecraft/server/level/ChunkMap;m_140167_(I)V",
+      "updatePlayerStatus": "Lnet/minecraft/server/level/ChunkMap;m_140192_(Lnet/minecraft/server/level/ServerPlayer;Z)V",
+      "move": "Lnet/minecraft/server/level/ChunkMap;m_140184_(Lnet/minecraft/server/level/ServerPlayer;)V",
+      "updateChunkTracking": "Lnet/minecraft/server/level/ChunkMap;m_183754_(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V",
+      "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V": "Lnet/minecraft/server/level/ChunkMap;m_183754_(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V"
+    },
+    "cn/ussshenzhou/notenoughbandwidth/mixin/ClientPacketListenerMixin": {
+      "handleCustomPayload": "Lnet/minecraft/client/multiplayer/ClientPacketListener;m_7413_(Lnet/minecraft/network/protocol/game/ClientboundCustomPayloadPacket;)V"
+    },
+    "cn/ussshenzhou/notenoughbandwidth/mixin/ServerGamePacketListenerImplMixin": {
+      "handleCustomPayload": "Lnet/minecraft/server/network/ServerGamePacketListenerImpl;m_7423_(Lnet/minecraft/network/protocol/game/ServerboundCustomPayloadPacket;)V"
+    }
+  },
+  "data": {
+    "searge": {
+      "cn/ussshenzhou/notenoughbandwidth/mixin/ConnectionMixin": {
+        "send": "Lnet/minecraft/network/Connection;m_243124_(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V"
+      },
+      "cn/ussshenzhou/notenoughbandwidth/mixin/PlayerListMixin": {
+        "setViewDistance": "Lnet/minecraft/server/players/PlayerList;m_11217_(I)V"
+      },
+      "cn/ussshenzhou/notenoughbandwidth/mixin/ChunkMapMixin": {
+        "setViewDistance": "Lnet/minecraft/server/level/ChunkMap;m_140167_(I)V",
+        "updatePlayerStatus": "Lnet/minecraft/server/level/ChunkMap;m_140192_(Lnet/minecraft/server/level/ServerPlayer;Z)V",
+        "move": "Lnet/minecraft/server/level/ChunkMap;m_140184_(Lnet/minecraft/server/level/ServerPlayer;)V",
+        "updateChunkTracking": "Lnet/minecraft/server/level/ChunkMap;m_183754_(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V",
+        "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V": "Lnet/minecraft/server/level/ChunkMap;m_183754_(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V"
+      },
+      "cn/ussshenzhou/notenoughbandwidth/mixin/ClientPacketListenerMixin": {
+        "handleCustomPayload": "Lnet/minecraft/client/multiplayer/ClientPacketListener;m_7413_(Lnet/minecraft/network/protocol/game/ClientboundCustomPayloadPacket;)V"
+      },
+      "cn/ussshenzhou/notenoughbandwidth/mixin/ServerGamePacketListenerImplMixin": {
+        "handleCustomPayload": "Lnet/minecraft/server/network/ServerGamePacketListenerImpl;m_7423_(Lnet/minecraft/network/protocol/game/ServerboundCustomPayloadPacket;)V"
+      }
+    }
+  }
+}

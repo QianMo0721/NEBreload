@@ -20,6 +20,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(PacketEncoder.class)
 public class PacketEncoderMixin {
 
+
     @Inject(method = "encode(Lio/netty/channel/ChannelHandlerContext;Lnet/minecraft/network/protocol/Packet;Lio/netty/buffer/ByteBuf;)V",
             at = @At(value = "TAIL"))
     private void nebRecordOutboundTraffic(ChannelHandlerContext ctx, Packet packet, ByteBuf output, CallbackInfo ci) {

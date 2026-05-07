@@ -18,6 +18,7 @@ public final class ChannelAttributes {
     public static final AttributeKey<NetworkPayloadSetup> PAYLOAD_SETUP = AttributeKey.valueOf("nebl:payload_setup");
     public static final AttributeKey<Set<ResourceLocation>> ADHOC_CHANNELS = AttributeKey.valueOf("nebl:adhoc_channels");
     public static final AttributeKey<Map<ConnectionProtocol, Set<ResourceLocation>>> COMMON_CHANNELS = AttributeKey.valueOf("nebl:common_channels");
+    public static final AttributeKey<Boolean> TRANSPORT_SETUP_REQUESTED = AttributeKey.valueOf("nebl:transport_setup_requested");
 
     private ChannelAttributes() {
     }
@@ -25,6 +26,9 @@ public final class ChannelAttributes {
     public static void setPayloadSetup(Connection connection, NetworkPayloadSetup setup) {
         if (connection != null && connection.channel() != null) {
             connection.channel().attr(PAYLOAD_SETUP).set(setup);
+            if (setup != null && setup.hasChannel(cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket.TYPE)) {
+                connection.channel().attr(TRANSPORT_SETUP_REQUESTED).set(Boolean.FALSE);
+            }
         }
     }
 
@@ -34,6 +38,30 @@ public final class ChannelAttributes {
             return null;
         }
         return connection.channel().attr(PAYLOAD_SETUP).get();
+    }
+
+    public static boolean hasNebTransport(Connection connection) {
+        NetworkPayloadSetup setup = getPayloadSetup(connection);
+        return setup != null && setup.hasChannel(cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket.TYPE);
+    }
+
+    public static boolean isTransportSetupRequested(Connection connection) {
+        if (connection == null || connection.channel() == null) {
+            return false;
+        }
+        return Boolean.TRUE.equals(connection.channel().attr(TRANSPORT_SETUP_REQUESTED).get());
+    }
+
+    public static void markTransportSetupRequested(Connection connection) {
+        if (connection != null && connection.channel() != null) {
+            connection.channel().attr(TRANSPORT_SETUP_REQUESTED).set(Boolean.TRUE);
+        }
+    }
+
+    public static void clearTransportSetupRequested(Connection connection) {
+        if (connection != null && connection.channel() != null) {
+            connection.channel().attr(TRANSPORT_SETUP_REQUESTED).set(Boolean.FALSE);
+        }
     }
 
     public static Set<ResourceLocation> getOrCreateAdHocChannels(Connection connection) {

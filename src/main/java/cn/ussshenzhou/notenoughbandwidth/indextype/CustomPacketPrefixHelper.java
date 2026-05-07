@@ -36,12 +36,14 @@ public class CustomPacketPrefixHelper {
         byte firstByte = buf.getByte(buf.readerIndex());
         if (firstByte == 0) {
             buf.readVarInt();
-            return new DecodedTypeInfo(buf.readResourceLocation(), false);
-        } else {
-            return new DecodedTypeInfo(NamespaceIndexManager.getIdentifier(buf.readVarInt(), buf.readVarInt()), true);
+            return new DecodedTypeInfo(buf.readResourceLocation(), false, true);
         }
+        int namespaceIndex = buf.readVarInt();
+        int pathIndex = buf.readVarInt();
+        ResourceLocation id = NamespaceIndexManager.getIdentifierOrNull(namespaceIndex, pathIndex);
+        return new DecodedTypeInfo(id, true, id != null);
     }
 
-    public record DecodedTypeInfo(@Nullable ResourceLocation type, boolean indexed) {
+    public record DecodedTypeInfo(@Nullable ResourceLocation type, boolean indexed, boolean valid) {
     }
 }
