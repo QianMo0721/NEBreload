@@ -55,7 +55,7 @@ public class MultiInstanceConfigHelper {
                 putCache(instance);
                 saveConfig(instance);
             } catch (IOException ignored) {
-                LogUtils.getLogger().error("Failed to load config {}. Things may not work well.", f);
+                LogUtils.getLogger().error("NEBL: Failed to load config {}. Things may not work well.", f);
             }
         }
     }
@@ -113,7 +113,7 @@ public class MultiInstanceConfigHelper {
             try {
                 FileUtils.write(configFile, GSON.toJson(config), StandardCharsets.UTF_8);
             } catch (IOException ignored) {
-                LogUtils.getLogger().error("Failed to save config {}. Things may not work well.", config.getClass());
+                LogUtils.getLogger().error("NEBL: Failed to save config {}. Things may not work well.", config.getClass());
             }
         });
     }

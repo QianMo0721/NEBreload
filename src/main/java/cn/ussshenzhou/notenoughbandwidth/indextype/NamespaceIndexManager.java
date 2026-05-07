@@ -1,5 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.indextype;
 
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import com.mojang.logging.LogUtils;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
@@ -246,7 +247,7 @@ public class NamespaceIndexManager {
 
         initTrace();
         if (NAMESPACES.size() > 4096 || PATHS.stream().anyMatch(l -> l.size() > 4096)) {
-            throw new RuntimeException("There are too many namespaces and/or paths (Max 4096 namespaces, 4096 paths for each namespace). NEB is not designed to work with so many mods.");
+            throw new RuntimeException("NEBL: There are too many namespaces and/or paths (Max 4096 namespaces, 4096 paths for each namespace). NEB is not designed to work with so many mods.");
         }
         initialized = true;
     }
@@ -269,8 +270,8 @@ public class NamespaceIndexManager {
 
     private static void initTrace() {
         var logger = LogUtils.getLogger();
-        if (logger.isDebugEnabled()) {
-            logger.debug("PacketTypeIndexManager initialized.");
+        if (NotEnoughBandwidthLegacyConfig.get().debugLog) {
+            logger.debug("NEBL: PacketTypeIndexManager initialized.");
             NAMESPACE_MAP.forEach((namespace, id) -> {
                 logger.debug("namespace: {} id: {}", namespace, id);
                 PATH_MAPS.get(id).forEach((path, id1) -> logger.debug("- path: {} id: {}", path, id1));
@@ -312,7 +313,7 @@ public class NamespaceIndexManager {
             return null;
         }
         if (namespaceIndex == 0){
-            throw new UnsupportedOperationException("namespaceIndex should not be 0");
+            throw new UnsupportedOperationException("NEBL: namespaceIndex should not be 0.");
         }
         return ResourceLocation.fromNamespaceAndPath(NAMESPACES.get(namespaceIndex), PATHS.get(namespaceIndex).get(pathIndex));
     }

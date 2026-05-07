@@ -37,23 +37,18 @@ public abstract class ConnectionMixin {
 
     @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;Z)V", at = @At("HEAD"), cancellable = true)
     private void neblPacketAggregate(Packet<?> packet, @Nullable PacketSendListener listener, boolean flush, CallbackInfo ci) {
-        //only work on play
         if (this.getRemoteAddress() instanceof LocalAddress || this.packetListener == null || this.packetListener.protocol() != ConnectionProtocol.PLAY) {
             return;
         }
-        //compatability and avoid infinite loop
         if (NotEnoughBandwidthLegacyConfig.skipType(PacketUtil.getTrueType(packet).toString())) {
-            //flush to ensure packet order
             AggregationManager.flushConnection((Connection) (Object) this);
             return;
         }
-        //de-bundle
         if (packet instanceof BundlePacket<?> bundlePacket) {
             bundlePacket.subPackets().forEach(p -> this.send(p, listener, flush));
             ci.cancel();
             return;
         }
-        //take over
         AggregationManager.takeOver(packet, (Connection) (Object) this);
         ci.cancel();
     }

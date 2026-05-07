@@ -10,7 +10,6 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
-import net.minecraft.resources.ResourceLocation;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -42,6 +41,10 @@ public class AggregationManager {
         PACKET_BUFFER.computeIfAbsent(connection, conn -> new ArrayList<>()).add(new AggregatedEncodePacket(packet, type));
     }
 
+    public synchronized static void clearCache(Connection connection) {
+        PACKET_BUFFER.remove(connection);
+    }
+
     private synchronized static void flush() {
         PACKET_BUFFER.entrySet().removeIf(e -> !e.getKey().isConnected());
         PACKET_BUFFER.forEach(AggregationManager::flushInternal);
@@ -61,7 +64,7 @@ public class AggregationManager {
             }
             var encoder = DefaultChannelPipelineHelper.getPacketEncoder((DefaultChannelPipeline) connection.channel().pipeline());
             if (encoder == null) {
-                LogUtils.getLogger().error("Failed to get PacketEncoder of connection {} {}.", connection.getDirection(), connection.getRemoteAddress());
+                LogUtils.getLogger().error("NEBL: Failed to get PacketEncoder of connection {} {}.", connection.getDirection(), connection.getRemoteAddress());
                 return;
             }
             var sendPackets = new ArrayList<>(packets);
@@ -73,7 +76,7 @@ public class AggregationManager {
             packets.clear();
             connection.flushChannel();
         } catch (Exception e) {
-            LogUtils.getLogger().error("Skipped: Failed to flush packets.", e);
+            LogUtils.getLogger().error("NEBL: Skipped: Failed to flush packets.", e);
         }
     }
 }

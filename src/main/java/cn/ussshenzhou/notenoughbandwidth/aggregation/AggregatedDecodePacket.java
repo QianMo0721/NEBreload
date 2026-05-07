@@ -65,7 +65,7 @@ public class AggregatedDecodePacket {
     private void handleCustom(IPayloadContext context, IdDispatchCodec<ByteBuf, Packet<?>, PacketType> vanillaCodec) {
         var codec = (StreamCodec<ByteBuf, CustomPacketPayload>) NetworkRegistry.getCodec(type, ConnectionProtocol.PLAY, context.flow());
         if (codec == null) {
-            LogUtils.getLogger().error("Skipped: Failed to handle packet " + type + ", failed to find a codec for it.");
+            LogUtils.getLogger().error("NEBL: Skipped: Failed to handle packet " + type + ", failed to find a codec for it.");
             return;
         }
         try {
@@ -76,7 +76,7 @@ public class AggregatedDecodePacket {
                 listener.handleCustomPayload(new ClientboundCustomPayloadPacket(truePacket));
             }
         } catch (Exception e) {
-            LogUtils.getLogger().error("Skipped: Failed to handle packet " + type, e);
+            LogUtils.getLogger().error("NEBL: Skipped: Failed to handle packet " + type, e);
         }
     }
 

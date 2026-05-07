@@ -1,4 +1,4 @@
-nebl-21.1.02-neoforge+1.21.1:
-Default built-in network channel blacklist for the "Yes Steve Model" mod, now the default configuration is compatible with YSM;
-Added startup prompts for completely incompatible mods, preventing the game from continuing;
-Some other adjustments.
+nebl-21.1.03-neoforge+1.21.1:
+Fixed Velocity proxy server compatibility;
+Update build.gradle files;
+Some minor improvements.

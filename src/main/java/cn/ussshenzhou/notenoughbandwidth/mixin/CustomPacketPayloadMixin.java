@@ -29,7 +29,6 @@ public class CustomPacketPayloadMixin {
             return buf;
         }
         if (NotEnoughBandwidthLegacyConfig.skipType(identifier.toString())) {
-            buf.writeByte(0);
             buf.writeResourceLocation(identifier);
             return buf;
         }
@@ -39,6 +38,14 @@ public class CustomPacketPayloadMixin {
 
     @Redirect(method = "decode(Lnet/minecraft/network/FriendlyByteBuf;)Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;", at = @At(value = "INVOKE", target = "Lnet/minecraft/network/FriendlyByteBuf;readResourceLocation()Lnet/minecraft/resources/ResourceLocation;"))
     private ResourceLocation neblIndexedHeaderDecode(FriendlyByteBuf buf) {
+        try {
+            var tryRead = new FriendlyByteBuf(buf.retainedDuplicate());
+            var tryType = tryRead.readResourceLocation();
+            if (NotEnoughBandwidthLegacyConfig.skipType(tryType.toString())) {
+                return buf.readResourceLocation();
+            }
+        } catch (Exception ignored) {
+        }
         if (val$protocol != ConnectionProtocol.PLAY) {
             return buf.readResourceLocation();
         }

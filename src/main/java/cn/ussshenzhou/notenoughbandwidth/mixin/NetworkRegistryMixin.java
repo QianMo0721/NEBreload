@@ -2,7 +2,9 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
 import cn.ussshenzhou.notenoughbandwidth.indextype.NamespaceIndexManager;
+import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import com.llamalad7.mixinextras.sugar.Local;
+import net.minecraft.network.Connection;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.configuration.ClientConfigurationPacketListener;
 import net.minecraft.network.protocol.configuration.ServerConfigurationPacketListener;
@@ -28,6 +30,9 @@ public class NetworkRegistryMixin {
     // server init
     @Inject(method = "initializeNeoForgeConnection(Lnet/minecraft/network/protocol/configuration/ServerConfigurationPacketListener;Ljava/util/Map;)V", at = @At("TAIL"))
     private static void neblServerInitialize(ServerConfigurationPacketListener listener, Map<ConnectionProtocol, Set<ModdedNetworkQueryComponent>> clientChannels, CallbackInfo ci, @Local(name = "setup") NetworkPayloadSetup setup) {
+        Connection connection = listener.getConnection();
+        ZstdHelper.clearCache(connection);
+        AggregationManager.clearCache(connection);
         NamespaceIndexManager.init(new ArrayList<>(setup.channels().get(ConnectionProtocol.PLAY).keySet()));
         AggregationManager.init();
     }
@@ -35,6 +40,9 @@ public class NetworkRegistryMixin {
     // client init
     @Inject(method = "initializeNeoForgeConnection(Lnet/minecraft/network/protocol/configuration/ClientConfigurationPacketListener;Lnet/neoforged/neoforge/network/registration/NetworkPayloadSetup;)V", at = @At("TAIL"))
     private static void neblClientInitialize(ClientConfigurationPacketListener listener, NetworkPayloadSetup setup, CallbackInfo ci) {
+        Connection connection = listener.getConnection();
+        ZstdHelper.clearCache(connection);
+        AggregationManager.clearCache(connection);
         NamespaceIndexManager.init(new ArrayList<>(setup.channels().get(ConnectionProtocol.PLAY).keySet()));
         AggregationManager.init();
     }

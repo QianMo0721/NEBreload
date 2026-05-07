@@ -10,7 +10,6 @@ import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.PacketFlow;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
-import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -44,6 +43,11 @@ public class ZstdHelper {
             directBuf.release();
             return decompressed;
         }
+    }
+
+    public static void clearCache(Connection connection) {
+        ZSTD_CONTEXT_CACHE.invalidate(connection);
+        CONNECTION_USE_CONTEXT.invalidate(connection);
     }
 
     private static Context get(Connection connection) {

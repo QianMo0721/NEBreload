@@ -56,6 +56,8 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     @Expose(serialize = false, deserialize = false)
     public static final HashSet<String> COMMON_FUZZY_BLOCK_LIST = new HashSet<>() {{
         add("yes_steve_model:");
+        add("allmusic:");
+        add("legacy:");
     }};
 
     public static NotEnoughBandwidthLegacyConfig get() {
@@ -77,7 +79,7 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
             int min = parseByteSize("2MB");
             int max = parseByteSize("64MB");
             if (maxPacketSizeByte < min || maxPacketSizeByte > max) {
-                LogUtils.getLogger().error("maxPacketSize should be between 2MB and 64MB");
+                LogUtils.getLogger().error("NEBL: maxPacketSize should be between 2MB and 64MB");
             }
             maxPacketSizeByte = Mth.clamp(maxPacketSizeByte, min, max);
         }
@@ -87,7 +89,7 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     private static int parseByteSize(String s) {
         var matcher = Pattern.compile("^([\\d.]+)\\s*(B|KB|MB)?$", Pattern.CASE_INSENSITIVE).matcher(s.trim());
         if (!matcher.matches()) {
-            LogUtils.getLogger().error("NEB: Invalid packet size: {} , use default 4MB instead.", s);
+            LogUtils.getLogger().error("NEBL: Invalid packet size: {} , use default 4MB instead.", s);
             return parseByteSize("4MB");
         }
         double value = Double.parseDouble(matcher.group(1));
@@ -99,7 +101,7 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
             case "KB" -> value * 1024;
             case "MB" -> value * 1024 * 1024;
             default -> {
-                LogUtils.getLogger().error("NEB: Invalid packet size: {} , use default 4MB instead.", s);
+                LogUtils.getLogger().error("NEBL: Invalid packet size: {} , use default 4MB instead.", s);
                 yield parseByteSize("4MB");
             }
         };

@@ -120,6 +120,7 @@ dependencies {
 
     runtimeOnly "maven.modrinth:packet-fixer:${packetfixer_id}"
     jarJar(implementation("com.github.luben:zstd-jni:1.5.7-7"))
+    additionalRuntimeClasspath "com.github.luben:zstd-jni:1.5.7-7"
 
     // For more info:
     // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html

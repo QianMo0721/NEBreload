@@ -59,7 +59,7 @@ public class AggregatedEncodePacket {
         var type = vanillaCodec.typeGetter.apply(packet);
         int id = vanillaCodec.toId.getOrDefault(type, -1);
         if (id == -1) {
-            LogUtils.getLogger().error("Skipped EncoderException: Sending unknown packet " + type);
+            LogUtils.getLogger().error("NEBL: Skipped EncoderException: Sending unknown packet " + type);
             return;
         }
         var entry = vanillaCodec.byId.get(id);

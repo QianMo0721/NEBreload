@@ -157,9 +157,9 @@ public class CachedChunkTrackingView implements ChunkTrackingView {
             ChunkTrackingView.difference(major, next, chunkPos -> {
                 if (cache.remove(chunkPos.toLong()) == NO_CACHE) {
                     context.startChunkTracking(chunkPos);
-                    if (isDebug) LOGGER.debug("Cache miss at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
+                    if (isDebug) LOGGER.debug("NEBL: Cache miss at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
                 } else {
-                    if (isDebug) LOGGER.debug("Cache hit at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
+                    if (isDebug) LOGGER.debug("NEBL: Cache hit at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
                 }
             }, chunkPos -> {
                 if (next.center().getChessboardDistance(chunkPos) <= chunkCacheDistance) {
@@ -173,7 +173,7 @@ public class CachedChunkTrackingView implements ChunkTrackingView {
                 if (next.center().getChessboardDistance(ChunkPos.getX(pos), ChunkPos.getZ(pos)) > chunkCacheDistance) {
                     ChunkPos chunkPos = new ChunkPos(pos);
                     context.stopChunkTracking(chunkPos);
-                    if (isDebug) LOGGER.debug("Remove {} from {}'s chunk cache: too far away.", chunkPos, player.getGameProfile().getName());
+                    if (isDebug) LOGGER.debug("NEBL: Remove {} from {}'s chunk cache: too far away.", chunkPos, player.getGameProfile().getName());
                     return CacheConsumer.REMOVE;
                 }
                 return CacheConsumer.CONTINUE;
@@ -186,7 +186,7 @@ public class CachedChunkTrackingView implements ChunkTrackingView {
             if (legacy || cache.size() >= chunkCacheBufferSize) {
                 ChunkPos chunkPos = new ChunkPos(pos);
                 context.stopChunkTracking(chunkPos);
-                if (isDebug) LOGGER.debug("Remove {} from {}'s chunk cache: {}", chunkPos, player.getGameProfile().getName(), legacy ? "timeout" : "buffer is full");
+                if (isDebug) LOGGER.debug("NEBL: Remove {} from {}'s chunk cache: {}", chunkPos, player.getGameProfile().getName(), legacy ? "timeout" : "buffer is full");
                 return CacheConsumer.REMOVE;
             } else {
                 return CacheConsumer.STOP;

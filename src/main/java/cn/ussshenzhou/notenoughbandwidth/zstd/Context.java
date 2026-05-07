@@ -44,7 +44,6 @@ public class Context implements Closeable {
         decompressCtx.decompressDirectByteBufferStream(dst, compressed);
         dst.flip();
         return dst;
-        //return decompressCtx.decompress(compressed, originalSize);
     }
 
 
@@ -53,16 +52,4 @@ public class Context implements Closeable {
         compressCtx.close();
         decompressCtx.close();
     }
-
-    //private static int getBestWindowLog() {
-    //    long maxDirectMemory = getMaxDirectMemory();
-    //}
-
-    //private static long getMaxDirectMemory() {
-    //    long direct = Long.parseLong(ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class).getVMOption("MaxDirectMemorySize").getValue());
-    //    if (direct == 0) {
-    //        direct = Runtime.getRuntime().maxMemory();
-    //    }
-    //    return direct;
-    //}
 }

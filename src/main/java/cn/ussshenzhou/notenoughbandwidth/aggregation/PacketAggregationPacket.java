@@ -135,7 +135,16 @@ public class PacketAggregationPacket implements CustomPacketPayload {
         if (compressed) {
             // S
             int size = data.readVarInt();
-            raw = new RegistryFriendlyByteBuf(ZstdHelper.decompress(connection, data.retainedDuplicate(), size), data.registryAccess(), data.getConnectionType());
+            try {
+                raw = new RegistryFriendlyByteBuf(ZstdHelper.decompress(connection, data.retainedDuplicate(), size), data.registryAccess(), data.getConnectionType());
+            } catch (Exception e) {
+                LogUtils.getLogger().error("NEBL: Failed to decompress packet aggregation from {}, clearing cache and skipping. This is expected after server switches.", connection.getRemoteAddress());
+                LogUtils.getLogger().error("NEBL: Decompression error details:", e);
+                ZstdHelper.clearCache(connection);
+                AggregationManager.clearCache(connection);
+                data.release();
+                return;
+            }
         } else {
             raw = new RegistryFriendlyByteBuf(data.retain(), data.registryAccess(), data.getConnectionType());
         }
