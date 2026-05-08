@@ -23,13 +23,13 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     public String commentCompatibleMode = "兼容模式开启后，会额外跳过黑名单中的数据包聚合。建议在经过代理、安装大量联机模组，或出现时序敏感问题（例如命令建议、玩家列表、聊天同步异常）时开启。";
 
     @SerializedName(value = "兼容模式", alternate = {"compatibleMode"})
-    public boolean compatibleMode = false;
+    public boolean compatibleMode = true;
 
     @SerializedName("说明-Velocity代理兼容模式")
     public String commentVelocityProxyCompatibleMode = "经过 Velocity 代理进入 Forge 子服时建议开启。开启后，NEB 的 clientbound 自定义 payload 聚合包会按 Velocity 默认 plugin message 上限拆分，避免代理端解码时因 payload 超过 32767 字节断开连接。serverbound 在 Forge 1.20.1 本身就是 32767 上限，不受此项额外影响。若您安装了增加数据包上限的mod,且无Velocity需求,应关闭此项";
 
     @SerializedName(value = "Velocity代理兼容模式", alternate = {"velocityProxyCompatibleMode"})
-    public boolean velocityProxyCompatibleMode = true;
+    public boolean velocityProxyCompatibleMode = false;
 
     @SerializedName("说明-兼容模式黑名单")
     public String commentBlackList = "仅在兼容模式开启时生效。列表内容为需要强制跳过聚合的数据包类型标识。默认会包含一批已知的时序敏感包；这些包会先触发 flush 再直通，以尽量避免 mod/代理兼容问题。";
@@ -38,15 +38,28 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     public HashSet<String> blackList = new HashSet<>() {{
         // 这里只保留“仅在兼容模式下额外直通”的包；无条件必须直通的包统一收口到
         // COMMON_BLOCK_LIST，如果这些出问题就加入黑名单
-        add("minecraft:command_suggestion");
-        add("minecraft:command_suggestions");
-        add("minecraft:commands");
         add("minecraft:chat");
         add("minecraft:chat_command");
         add("minecraft:chat_command_signed");
         add("minecraft:chat_session_update");
         add("minecraft:player_info_update");
         add("minecraft:player_info_remove");
+        add("minecraft:resource_pack");
+        add("minecraft:update_enabled_features");
+        add("minecraft:respawn");
+        add("minecraft:game_event");
+        add("minecraft:initialize_border");
+        add("minecraft:set_time");
+        add("minecraft:change_difficulty");
+        add("minecraft:set_default_spawn_position");
+        add("minecraft:player_position");
+        add("minecraft:player_abilities");
+        add("minecraft:set_health");
+        add("minecraft:set_experience");
+        add("minecraft:update_mob_effect");
+        add("minecraft:remove_mob_effect");
+        add("minecraft:set_chunk_cache_center");
+        add("minecraft:set_chunk_cache_radius");
     }};
 
     @SerializedName("说明-保持网络线程分发的自定义包")
@@ -137,85 +150,26 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add(ModConstants.MOD_ID + ":stat_query");
         add(ModConstants.MOD_ID + ":stat_resp");
         add("minecraft:login");
+        // OP 权限、命令树与命令建议同步对时序非常敏感。
+        add("minecraft:command_suggestion");
+        add("minecraft:command_suggestions");
+        add("minecraft:commands");
         // NEB transport channel itself must never be re-aggregated,
         // otherwise PacketAggregationPacket is wrapped into nebl:main and
         // intercepted again by ConnectionMixin, causing packets to loop in
         // the aggregation buffer and never actually reach the remote side.
         add(ModConstants.MOD_ID + ":main");
-        // Connection-control and synchronization-sensitive vanilla packets – skip aggregation
+        // Connection-control and transport-control packets should still bypass aggregation.
         add("minecraft:disconnect");
         add("minecraft:keep_alive");
         add("minecraft:ping");
         add("minecraft:pong");
         add("minecraft:register");
         add("minecraft:unregister");
-        add("minecraft:resource_pack");
         add("minecraft:client_information");
-        add("minecraft:update_enabled_features");
-        // Forge 1.20.1 port: serverbound movement / interaction packets are far
-        // more timing-sensitive than in the old branch. Keeping them behind the
-        // optional compatibleMode blacklist still allows aggregation to delay
-        // authoritative movement and menu actions, causing rubber-banding and
-        // interaction stalls. Treat them as unconditional passthrough here.
-        add("minecraft:move_player_pos");
-        add("minecraft:move_player_pos_rot");
-        add("minecraft:move_player_rot");
-        add("minecraft:move_player_status_only");
-        add("minecraft:accept_teleportation");
-        add("minecraft:client_command");
-        add("minecraft:player_action");
-        add("minecraft:interact");
-        add("minecraft:use_item");
-        add("minecraft:use_item_on");
-        add("minecraft:container_click");
-        add("minecraft:container_button_click");
-        add("minecraft:container_slot_state_changed");
-        add("minecraft:container_set_content");
-        add("minecraft:container_set_slot");
-        add("minecraft:container_set_data");
-        add("minecraft:container_close");
-        add("minecraft:open_screen");
-        add("minecraft:horse_screen_open");
-        add("minecraft:mount_screen_open");
-        add("minecraft:merchant_offers");
-        add("minecraft:place_ghost_recipe");
-        add("minecraft:place_recipe");
-        add("minecraft:select_trade");
-        add("minecraft:recipe_book_change_settings");
-        add("minecraft:recipe_book_seen_recipe");
-        add("minecraft:update_recipes");
-        add("minecraft:set_carried_item");
-        add("minecraft:set_held_slot");
-        // Respawn and death-recovery flows are highly timing-sensitive, especially
-        // when mods like gravestone/tombstone inject extra state sync right after
-        // respawn. Keep these packets on the passthrough path to avoid delaying the
-        // client reinitialization sequence behind the aggregation flush window.
-        add("minecraft:respawn");
-        add("minecraft:game_event");
-        add("minecraft:initialize_border");
-        add("minecraft:set_time");
-        add("minecraft:change_difficulty");
-        add("minecraft:set_default_spawn_position");
-        add("minecraft:player_position");
-        add("minecraft:player_abilities");
-        add("minecraft:set_health");
-        add("minecraft:set_experience");
-        add("minecraft:update_mob_effect");
-        add("minecraft:remove_mob_effect");
-        // Stonecutter and other menu screens depend on immediate container/menu
-        // synchronization. These packets must bypass aggregation even when
-        // compatibleMode is off, otherwise the client can observe stale input
-        // state and render no available recipes.
         // 自己解释，不能再叠加 NEB 的 transparent custom-payload 压缩，否则会在
         // 对端网络层先于 Minecraft 逻辑解析时读到 NEBZSTD1 魔数。
         add("fml:play");
-        // Chunk cache control packets remain timing-sensitive in the current
-        // Forge 1.20.1 port, but the bulk chunk payload packets need to stay
-        // aggregatable, otherwise compression ratio collapses far below the
-        // original mod because most of the bandwidth is no longer eligible.
-        add("minecraft:set_chunk_cache_center");
-        add("minecraft:set_chunk_cache_radius");
-        // 按移植前项目实现，这些移动/同步包默认也应参与聚合；
         // Forge internal channel packets – skip aggregation
         add("forge:tier_sorting");
         add("forge:registry_data");

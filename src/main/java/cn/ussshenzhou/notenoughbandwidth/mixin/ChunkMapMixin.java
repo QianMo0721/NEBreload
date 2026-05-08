@@ -245,10 +245,13 @@ public abstract class ChunkMapMixin {
 
             @Override
             public void onCacheHit(ChunkPos pos, int estimatedBodySize) {
-                int estimatedRawSize = RawTrafficHelper.estimateCachedChunkRawSize(estimatedBodySize);
-                if (estimatedRawSize > 0) {
-                    SimpleStatManager.outRaw(estimatedRawSize);
-                }
+                /*
+                延迟区块缓存命中时，这个区块本次并没有真正重新经过网络发送。
+                之前这里把“理论上若重发该区块会产生的 raw”补记进统计，
+                会把 client inbound / server outbound 的 raw 人为抬高，
+                让面板看起来像聚合压缩效果很差，实际上这是 DCC 命中带来的
+                本地/服务端缓存收益，不应混入真实网络传输统计。
+                */
             }
 
             @Override

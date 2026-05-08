@@ -27,8 +27,12 @@ public class PacketEncoderMixin {
         int bakedSize = output.readableBytes();
         SimpleStatManager.outBaked(bakedSize);
         int rawSize;
-        if (PacketUtil.getTruePacket(packet) instanceof PacketAggregationPacket aggregationPacket) {
-            rawSize = Math.max(0, bakedSize - aggregationPacket.getBakedSize());
+        if (PacketUtil.getTruePacket(packet) instanceof PacketAggregationPacket) {
+            // 聚合容器内部各子包的 raw 已在
+            // PacketAggregationPacket.encode() 中统计过；
+            // 这里若再补 baked-payload 差值，会把外层 wrapper 开销误记进 raw，
+            // 导致双端上下行 raw 偏大。
+            rawSize = 0;
         } else {
             rawSize = EncodedTrafficStatHelper.estimateRawPacketSize(packet, output);
         }

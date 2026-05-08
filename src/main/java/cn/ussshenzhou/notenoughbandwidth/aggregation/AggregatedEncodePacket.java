@@ -218,7 +218,6 @@ public class AggregatedEncodePacket {
             }
             if (customPayloadData != null && type != null) {
                 FriendlyByteBuf packetBuf = new FriendlyByteBuf(Unpooled.buffer());
-                boolean transferred = false;
                 try {
                     packetBuf.writeResourceLocation(type);
                     packetBuf.writeBytes(customPayloadData, customPayloadData.readerIndex(), customPayloadData.readableBytes());
@@ -227,9 +226,8 @@ public class AggregatedEncodePacket {
                     } else {
                         connection.send(new ServerboundCustomPayloadPacket(packetBuf));
                     }
-                    transferred = true;
                 } finally {
-                    if (!transferred && packetBuf.refCnt() > 0) {
+                    if (packetBuf.refCnt() > 0) {
                         packetBuf.release();
                     }
                 }

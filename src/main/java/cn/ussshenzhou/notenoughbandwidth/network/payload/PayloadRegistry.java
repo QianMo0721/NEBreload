@@ -69,11 +69,13 @@ public final class PayloadRegistry {
 
     public static NetworkPayloadSetup buildSetup(@Nullable Map<ResourceLocation, String> negotiatedChannels) {
         NetworkPayloadSetup setup = NetworkPayloadSetup.empty();
-        for (PayloadRegistration<?> registration : REGISTRATIONS.values()) {
-            if (negotiatedChannels == null || negotiatedChannels.containsKey(registration.id())) {
+        if (negotiatedChannels == null || negotiatedChannels.isEmpty()) {
+            for (PayloadRegistration<?> registration : REGISTRATIONS.values()) {
                 setup.register(registration);
             }
+            return setup;
         }
+        negotiatedChannels.forEach(setup::register);
         return setup;
     }
 
@@ -102,7 +104,6 @@ public final class PayloadRegistry {
         }
         FriendlyByteBuf payloadBuf = new FriendlyByteBuf(Unpooled.buffer());
         FriendlyByteBuf packetBuf = null;
-        boolean transferred = false;
         try {
             encode(payloadBuf, payload);
             packetBuf = new FriendlyByteBuf(Unpooled.buffer());
@@ -113,10 +114,9 @@ public final class PayloadRegistry {
             } else {
                 connection.send(new ServerboundCustomPayloadPacket(packetBuf));
             }
-            transferred = true;
         } finally {
             payloadBuf.release();
-            if (!transferred && packetBuf != null && packetBuf.refCnt() > 0) {
+            if (packetBuf != null && packetBuf.refCnt() > 0) {
                 packetBuf.release();
             }
         }

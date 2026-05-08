@@ -46,8 +46,15 @@ public record NebTransportSetupPayload(boolean ack) implements NebPayload {
         }
         NetworkPayloadSetup existingSetup = ChannelAttributes.getPayloadSetup(context.connection());
         NetworkPayloadSetup setup = existingSetup == null
-                ? PayloadRegistry.buildTransportOnlySetup()
+                ? NetworkPayloadSetup.empty()
                 : new NetworkPayloadSetup(existingSetup.channels());
+        try {
+            var connectionData = net.minecraftforge.network.NetworkHooks.getConnectionData(context.connection());
+            if (connectionData != null && !connectionData.getChannels().isEmpty()) {
+                connectionData.getChannels().forEach(setup::register);
+            }
+        } catch (Throwable ignored) {
+        }
         setup.register(transportRegistration);
         if (!setup.hasChannel(PacketAggregationPacket.TYPE)) {
             return;
