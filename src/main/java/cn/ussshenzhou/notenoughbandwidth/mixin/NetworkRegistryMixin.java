@@ -29,10 +29,10 @@ public class NetworkRegistryMixin {
             return;
         }
         var payloadSetup = PayloadRegistry.buildSetup(message.getChannels());
-        NamespaceIndexManager.initFromPayloadSetup(payloadSetup);
         var context = contextSupplier.get();
         if (context != null && context.getNetworkManager() != null) {
             ChannelAttributes.setPayloadSetup(context.getNetworkManager(), payloadSetup);
+            NamespaceIndexManager.initForConnection(context.getNetworkManager(), payloadSetup);
         }
         if (!AggregationManager.isInitialized()) {
             AggregationManager.init();
@@ -48,10 +48,10 @@ public class NetworkRegistryMixin {
             return;
         }
         var payloadSetup = PayloadRegistry.buildSetup(message.getChannels());
-        NamespaceIndexManager.initFromPayloadSetup(payloadSetup);
         var context = contextSupplier.get();
         if (context != null && context.getNetworkManager() != null) {
             ChannelAttributes.setPayloadSetup(context.getNetworkManager(), payloadSetup);
+            NamespaceIndexManager.initForConnection(context.getNetworkManager(), payloadSetup);
         }
         if (!AggregationManager.isInitialized()) {
             AggregationManager.init();

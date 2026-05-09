@@ -60,7 +60,7 @@ public record NebTransportSetupPayload(boolean ack) implements NebPayload {
             return;
         }
         ChannelAttributes.setPayloadSetup(context.connection(), setup);
-        NamespaceIndexManager.initFromPayloadSetup(setup);
+        NamespaceIndexManager.initForConnection(context.connection(), setup);
         if (!AggregationManager.isInitialized()) {
             AggregationManager.init();
         }

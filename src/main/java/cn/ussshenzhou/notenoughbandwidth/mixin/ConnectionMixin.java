@@ -3,6 +3,7 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import cn.ussshenzhou.notenoughbandwidth.indextype.NamespaceIndexManager;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.ChannelAttributes;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import io.netty.channel.local.LocalAddress;
@@ -31,7 +32,11 @@ import javax.annotation.Nullable;
  */
 @Mixin(value = Connection.class, priority = 1)
 public abstract class ConnectionMixin {
-    @Inject(method = "send", at = @At("HEAD"), cancellable = true)
+    @Inject(
+            method = "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V",
+            at = @At("HEAD"),
+            cancellable = true
+    )
     private void nebAggregatePacket(Packet<?> packet, @Nullable PacketSendListener listener, CallbackInfo ci) {
         Connection connection = (Connection) (Object) this;
         if (AggregationManager.isInternalSend()) {
@@ -64,6 +69,21 @@ public abstract class ConnectionMixin {
         }
         AggregationManager.takeOver(packet, connection);
         ci.cancel();
+    }
+
+    @Inject(
+            method = "tick",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/network/Connection;handleDisconnection()V"
+            )
+    )
+    private void nebClearConnectionScopedStateBeforeHandleDisconnection(CallbackInfo ci) {
+        Connection connection = (Connection) (Object) this;
+        AggregationManager.clearConnection(connection);
+        NamespaceIndexManager.clearConnection(connection);
+        ChannelAttributes.setPayloadSetup(connection, null);
+        ChannelAttributes.clearTransportSetupRequested(connection);
     }
 
     @Unique

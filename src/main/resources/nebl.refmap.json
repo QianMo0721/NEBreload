@@ -1,7 +1,9 @@
 {
   "mappings": {
     "cn/ussshenzhou/notenoughbandwidth/mixin/ConnectionMixin": {
-      "send": "Lnet/minecraft/network/Connection;m_243124_(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V"
+      "Lnet/minecraft/network/Connection;handleDisconnection()V": "Lnet/minecraft/network/Connection;m_129541_()V",
+      "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V": "Lnet/minecraft/network/Connection;m_243124_(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V",
+      "tick": "Lnet/minecraft/network/Connection;m_129483_()V"
     },
     "cn/ussshenzhou/notenoughbandwidth/mixin/PlayerListMixin": {
       "setViewDistance": "Lnet/minecraft/server/players/PlayerList;m_11217_(I)V"
@@ -23,7 +25,9 @@
   "data": {
     "searge": {
       "cn/ussshenzhou/notenoughbandwidth/mixin/ConnectionMixin": {
-        "send": "Lnet/minecraft/network/Connection;m_243124_(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V"
+        "Lnet/minecraft/network/Connection;handleDisconnection()V": "Lnet/minecraft/network/Connection;m_129541_()V",
+        "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V": "Lnet/minecraft/network/Connection;m_243124_(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V",
+        "tick": "Lnet/minecraft/network/Connection;m_129483_()V"
       },
       "cn/ussshenzhou/notenoughbandwidth/mixin/PlayerListMixin": {
         "setViewDistance": "Lnet/minecraft/server/players/PlayerList;m_11217_(I)V"

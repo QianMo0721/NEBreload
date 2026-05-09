@@ -16,6 +16,7 @@ import java.util.Set;
  */
 public final class ChannelAttributes {
     public static final AttributeKey<NetworkPayloadSetup> PAYLOAD_SETUP = AttributeKey.valueOf("nebl:payload_setup");
+    public static final AttributeKey<cn.ussshenzhou.notenoughbandwidth.indextype.ConnectionIndexTable> CONNECTION_INDEX_TABLE = AttributeKey.valueOf("nebl:connection_index_table");
     public static final AttributeKey<Set<ResourceLocation>> ADHOC_CHANNELS = AttributeKey.valueOf("nebl:adhoc_channels");
     public static final AttributeKey<Map<ConnectionProtocol, Set<ResourceLocation>>> COMMON_CHANNELS = AttributeKey.valueOf("nebl:common_channels");
     public static final AttributeKey<Boolean> TRANSPORT_SETUP_REQUESTED = AttributeKey.valueOf("nebl:transport_setup_requested");
@@ -30,6 +31,20 @@ public final class ChannelAttributes {
                 connection.channel().attr(TRANSPORT_SETUP_REQUESTED).set(Boolean.FALSE);
             }
         }
+    }
+
+    public static void setConnectionIndexTable(Connection connection, @Nullable cn.ussshenzhou.notenoughbandwidth.indextype.ConnectionIndexTable table) {
+        if (connection != null && connection.channel() != null) {
+            connection.channel().attr(CONNECTION_INDEX_TABLE).set(table);
+        }
+    }
+
+    @Nullable
+    public static cn.ussshenzhou.notenoughbandwidth.indextype.ConnectionIndexTable getConnectionIndexTable(Connection connection) {
+        if (connection == null || connection.channel() == null) {
+            return null;
+        }
+        return connection.channel().attr(CONNECTION_INDEX_TABLE).get();
     }
 
     @Nullable

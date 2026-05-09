@@ -130,7 +130,7 @@ public class PacketAggregationPacket implements NebPayload {
      * – if v=false, h is the payload type prefix
      * – size covers only the data bytes.
      */
-    private static void encodeSubPacket(FriendlyByteBuf raw, AggregatedEncodePacket p) {
+    private void encodeSubPacket(FriendlyByteBuf raw, AggregatedEncodePacket p) {
         // Serialize packet data into a temporary buffer first so we know the size
         var dataBuf = new FriendlyByteBuf(ByteBufAllocator.DEFAULT.buffer());
         try {
@@ -140,7 +140,7 @@ public class PacketAggregationPacket implements NebPayload {
                 raw.writeVarInt(p.getVanillaPacketId());
             } else {
                 var decodedType = p.getType();
-                CustomPacketPrefixHelper.write(decodedType, raw);
+                CustomPacketPrefixHelper.write(connection, decodedType, raw);
             }
             // s – data length
             raw.writeVarInt(dataBuf.readableBytes());
@@ -215,7 +215,7 @@ public class PacketAggregationPacket implements NebPayload {
         var packetsToHandle = new ArrayList<AggregatedDecodePacket>();
         try {
             while (raw.readableBytes() > 0) {
-                deAggregatePacket(raw, packetsToHandle);
+                deAggregatePacket(decodingConnection, raw, packetsToHandle);
             }
         } finally {
             raw.release();
@@ -223,14 +223,14 @@ public class PacketAggregationPacket implements NebPayload {
         return packetsToHandle;
     }
 
-    private void deAggregatePacket(FriendlyByteBuf buf, ArrayList<AggregatedDecodePacket> out) {
+    private void deAggregatePacket(@Nullable Connection decodingConnection, FriendlyByteBuf buf, ArrayList<AggregatedDecodePacket> out) {
         boolean vanilla = buf.readBoolean();
         int vanillaPacketId = -1;
         ResourceLocation type = null;
         if (vanilla) {
             vanillaPacketId = buf.readVarInt();
         } else {
-            CustomPacketPrefixHelper.DecodedTypeInfo info = CustomPacketPrefixHelper.readInfo(buf);
+            CustomPacketPrefixHelper.DecodedTypeInfo info = CustomPacketPrefixHelper.readInfo(decodingConnection, buf);
             if (!info.valid()) {
                 throw new IllegalArgumentException("Invalid NEB indexed payload prefix in aggregated packet");
             }

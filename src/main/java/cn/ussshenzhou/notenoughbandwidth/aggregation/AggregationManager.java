@@ -75,6 +75,14 @@ public class AggregationManager {
         flushInternal(connection, PACKET_BUFFER.get(connection));
     }
 
+    public synchronized static void clearConnection(@Nullable Connection connection) {
+        if (connection == null) {
+            return;
+        }
+        ArrayList<AggregatedEncodePacket> packets = PACKET_BUFFER.remove(connection);
+        releaseBufferedPackets(packets);
+    }
+
     private synchronized static void flush() {
         removeDisconnectedConnections();
         PACKET_BUFFER.forEach(AggregationManager::flushInternal);

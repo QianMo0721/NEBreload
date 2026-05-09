@@ -195,7 +195,10 @@ public class AggregatedEncodePacket {
     private static int getTypePrefixSize(ResourceLocation type) {
         FriendlyByteBuf sizeProbe = new FriendlyByteBuf(Unpooled.buffer());
         try {
-            CustomPacketPrefixHelper.write(type, sizeProbe);
+            // 仅用于粗略拆包估算，不能依赖连接级索引上下文；
+            // 这里保守按未索引 RL 头估算，宁可高估，不影响正确性。
+            sizeProbe.writeByte(0);
+            sizeProbe.writeResourceLocation(type);
             return sizeProbe.readableBytes();
         } finally {
             sizeProbe.release();

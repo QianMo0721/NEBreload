@@ -1,12 +1,14 @@
 package cn.ussshenzhou.notenoughbandwidth.indextype;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.ChannelAttributes;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.NetworkPayloadSetup;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import com.mojang.logging.LogUtils;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import net.minecraft.network.Connection;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Tuple;
 import net.minecraftforge.api.distmarker.Dist;
@@ -16,6 +18,8 @@ import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -27,6 +31,7 @@ public class NamespaceIndexManager {
     private static final ArrayList<ArrayList<String>> PATHS = new ArrayList<>();
     private static final Object2IntMap<String> NAMESPACE_MAP = new Object2IntOpenHashMap<>();
     private static final Int2ObjectArrayMap<Object2IntMap<String>> PATH_MAPS = new Int2ObjectArrayMap<>();
+    private static final WeakHashMap<Connection, ConnectionIndexTable> CONNECTION_TABLE_CACHE = new WeakHashMap<>();
 
     static {
         NAMESPACE_MAP.defaultReturnValue(-1);
@@ -219,13 +224,7 @@ public class NamespaceIndexManager {
         return initialized;
     }
 
-    /**
-     * Initialize from the negotiated PLAY channel set of the current connection.
-     * This mirrors the original project's behavior more closely than scanning all
-     * locally registered channels, because only mutually visible channels may be
-     * indexed safely on both sides.
-     */
-    public synchronized static void initFromNegotiatedChannels(java.util.Map<ResourceLocation, String> remoteChannels) {
+    public synchronized static void initFromNegotiatedChannels(Map<ResourceLocation, String> remoteChannels) {
         init(buildNegotiatedPayloadTypes(remoteChannels));
     }
 
@@ -238,16 +237,12 @@ public class NamespaceIndexManager {
     }
 
     public synchronized static void init(List<ResourceLocation> types) {
-        if (FMLEnvironment.dist == Dist.DEDICATED_SERVER && initialized) {
-            return;
-        }
         initialized = false;
         NAMESPACES.clear();
         PATHS.clear();
         NAMESPACE_MAP.clear();
         PATH_MAPS.clear();
 
-        // 0 reserved for un-indexed payloads, mirroring the NeoForge branch.
         AtomicInteger namespaceIndex = new AtomicInteger(1);
         NAMESPACES.add("ILLEGAL");
         PATHS.add(new ArrayList<>());
@@ -260,6 +255,75 @@ public class NamespaceIndexManager {
             throw new RuntimeException("There are too many namespaces and/or paths (Max 4096 namespaces, 4096 paths for each namespace). NEB is not designed to work with so many mods.");
         }
         initialized = true;
+    }
+
+    public synchronized static void initForConnection(@Nullable Connection connection, @Nullable NetworkPayloadSetup setup) {
+        if (connection == null || connection.channel() == null) {
+            return;
+        }
+        List<ResourceLocation> customTypes = setup == null
+                ? List.of()
+                : new ArrayList<>(setup.getChannels(net.minecraft.network.ConnectionProtocol.PLAY).keySet());
+        ConnectionIndexTable table = ConnectionIndexTable.create(getVanillaTypes(), customTypes);
+        CONNECTION_TABLE_CACHE.put(connection, table);
+        ChannelAttributes.setConnectionIndexTable(connection, table);
+        traceConnectionTable(connection, table, customTypes);
+    }
+
+    public synchronized static void clearConnection(@Nullable Connection connection) {
+        if (connection == null) {
+            return;
+        }
+        CONNECTION_TABLE_CACHE.remove(connection);
+        ChannelAttributes.setConnectionIndexTable(connection, null);
+    }
+
+    @Nullable
+    public static ConnectionIndexTable getConnectionTable(@Nullable Connection connection) {
+        if (connection == null || connection.channel() == null) {
+            return null;
+        }
+        ConnectionIndexTable table = ChannelAttributes.getConnectionIndexTable(connection);
+        if (table != null) {
+            return table;
+        }
+        synchronized (NamespaceIndexManager.class) {
+            table = CONNECTION_TABLE_CACHE.get(connection);
+            if (table != null) {
+                ChannelAttributes.setConnectionIndexTable(connection, table);
+            }
+            return table;
+        }
+    }
+
+    public static boolean contains(@Nullable Connection connection, ResourceLocation type) {
+        ConnectionIndexTable table = getConnectionTable(connection);
+        return table != null && table.contains(type);
+    }
+
+    public static Tuple<Integer, Integer> getCheckedIndex(@Nullable Connection connection, ResourceLocation type) {
+        ConnectionIndexTable table = getConnectionTable(connection);
+        if (table == null) {
+            throw new IndexOutOfBoundsException("Missing NEB connection index table for " + type);
+        }
+        return table.getCheckedIndex(type);
+    }
+
+    @Nullable
+    public static ResourceLocation getIdentifierOrNull(@Nullable Connection connection, int namespaceIndex, int pathIndex) {
+        ConnectionIndexTable table = getConnectionTable(connection);
+        if (table == null) {
+            return null;
+        }
+        return table.getIdentifierOrNull(namespaceIndex, pathIndex);
+    }
+
+    public static boolean canAggregate(@Nullable Connection connection, ResourceLocation type) {
+        return type != null && contains(connection, type);
+    }
+
+    public static boolean ready(@Nullable Connection connection) {
+        return getConnectionTable(connection) != null;
     }
 
     private static void indexVanillaPackets(AtomicInteger namespaceIndex) {
@@ -281,7 +345,7 @@ public class NamespaceIndexManager {
         return PacketAggregationPacket.TYPE.equals(type);
     }
 
-    private static List<ResourceLocation> buildNegotiatedPayloadTypes(java.util.Map<ResourceLocation, String> remoteChannels) {
+    private static List<ResourceLocation> buildNegotiatedPayloadTypes(Map<ResourceLocation, String> remoteChannels) {
         var result = new ArrayList<ResourceLocation>();
         if (remoteChannels == null || remoteChannels.isEmpty()) {
             return result;
@@ -293,6 +357,20 @@ public class NamespaceIndexManager {
             }
         });
         return result;
+    }
+
+    private static List<ResourceLocation> getVanillaTypes() {
+        return VANILLA_PATHS.stream()
+                .map(path -> ResourceLocation.fromNamespaceAndPath("minecraft", path))
+                .toList();
+    }
+
+    private static void traceConnectionTable(Connection connection, ConnectionIndexTable table, List<ResourceLocation> customTypes) {
+        var logger = LogUtils.getLogger();
+        if (logger.isDebugEnabled()) {
+            logger.debug("[NEB] Built connection index table for {} with {} custom payload types.",
+                    connection.getRemoteAddress(), customTypes.stream().filter(type -> type != null && !PacketAggregationPacket.TYPE.equals(type)).count());
+        }
     }
 
     private static void initTrace() {
@@ -326,6 +404,7 @@ public class NamespaceIndexManager {
         });
     }
 
+    @Deprecated
     public static boolean contains(ResourceLocation type) {
         if (!initialized) {
             return false;
@@ -333,11 +412,13 @@ public class NamespaceIndexManager {
         return NAMESPACE_MAP.containsKey(type.getNamespace()) && PATH_MAPS.get(NAMESPACE_MAP.getInt(type.getNamespace())).containsKey(type.getPath());
     }
 
+    @Deprecated
     public static Tuple<Integer, Integer> getCheckedIndex(ResourceLocation type) {
         int namespaceId = NAMESPACE_MAP.getInt(type.getNamespace());
         return new Tuple<>(namespaceId, PATH_MAPS.get(namespaceId).getInt(type.getPath()));
     }
 
+    @Deprecated
     @Nullable
     public static ResourceLocation getIdentifierOrNull(int namespaceIndex, int pathIndex) {
         if (!initialized || namespaceIndex <= 0 || namespaceIndex >= NAMESPACES.size()) {
@@ -350,6 +431,7 @@ public class NamespaceIndexManager {
         return ResourceLocation.fromNamespaceAndPath(NAMESPACES.get(namespaceIndex), paths.get(pathIndex));
     }
 
+    @Deprecated
     public static ResourceLocation getIdentifier(int namespaceIndex, int pathIndex) {
         ResourceLocation id = getIdentifierOrNull(namespaceIndex, pathIndex);
         if (id == null) {
@@ -358,10 +440,12 @@ public class NamespaceIndexManager {
         return id;
     }
 
+    @Deprecated
     public static boolean canAggregate(ResourceLocation type) {
         return type != null && contains(type);
     }
 
+    @Deprecated
     public static boolean ready() {
         return initialized;
     }
