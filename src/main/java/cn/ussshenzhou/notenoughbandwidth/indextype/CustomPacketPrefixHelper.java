@@ -12,14 +12,16 @@ import javax.annotation.Nullable;
  */
 public class CustomPacketPrefixHelper {
     public static void write(@Nullable net.minecraft.network.Connection connection, ResourceLocation type, FriendlyByteBuf buf) {
-        if (type != null && NamespaceIndexManager.contains(connection, type)) {
+        // 优先使用“每连接索引表”压缩 type 前缀；
+        // 当连接上下文不可用或该 type 未进入当前连接协商集时，安全回退到原始 RL。
+        if (connection != null && NamespaceIndexManager.ready(connection) && NamespaceIndexManager.contains(connection, type)) {
             Tuple<Integer, Integer> index = NamespaceIndexManager.getCheckedIndex(connection, type);
             buf.writeVarInt(index.getA());
             buf.writeVarInt(index.getB());
-        } else {
-            buf.writeByte(0);
-            buf.writeResourceLocation(type);
+            return;
         }
+        buf.writeByte(0);
+        buf.writeResourceLocation(type);
     }
 
     @Deprecated

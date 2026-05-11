@@ -34,6 +34,7 @@ public class AggregationManager {
     private static final int ZSTD_MAGICLESS_FLUSH_OVERHEAD = 8;
     private static final ThreadLocal<Boolean> INTERNAL_SEND = ThreadLocal.withInitial(() -> false);
     private static final WeakHashMap<Connection, ArrayList<AggregatedEncodePacket>> PACKET_BUFFER = new WeakHashMap<>();
+    private static final WeakHashMap<Connection, Long> BATCH_START_NANOS = new WeakHashMap<>();
     private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(
             new ThreadFactoryBuilder().setNameFormat("NEB-Flush-thread").setDaemon(true).build());
     private static final ArrayList<ScheduledFuture<?>> TASKS = new ArrayList<>();
@@ -54,6 +55,7 @@ public class AggregationManager {
         initialized = false;
         releaseAllBufferedPackets();
         PACKET_BUFFER.clear();
+        BATCH_START_NANOS.clear();
         TASKS.forEach(task -> task.cancel(false));
         TASKS.clear();
         TASKS.add(TIMER.scheduleAtFixedRate(
@@ -64,10 +66,23 @@ public class AggregationManager {
         initialized = true;
     }
 
-    public synchronized static void takeOver(Packet<?> packet, Connection connection) {
+    public synchronized static boolean takeOver(Packet<?> packet, Connection connection) {
         var type = PacketUtil.getTrueType(packet);
-        PACKET_BUFFER.computeIfAbsent(connection, k -> new ArrayList<>())
-                .add(new AggregatedEncodePacket(packet, type, connection.getSending()));
+        if (type == null || NotEnoughBandwidthLegacyConfig.skipType(type.toString())) {
+            return false;
+        }
+        ArrayList<AggregatedEncodePacket> packets = PACKET_BUFFER.computeIfAbsent(connection, k -> new ArrayList<>());
+        if (packets.isEmpty()) {
+            BATCH_START_NANOS.put(connection, System.nanoTime());
+        } else if (isBatchExpired(connection)) {
+            flushInternal(connection, packets);
+            packets = PACKET_BUFFER.computeIfAbsent(connection, k -> new ArrayList<>());
+            if (packets.isEmpty()) {
+                BATCH_START_NANOS.put(connection, System.nanoTime());
+            }
+        }
+        packets.add(new AggregatedEncodePacket(packet, type, connection.getSending()));
+        return true;
     }
 
     public synchronized static void flushConnection(Connection connection) {
@@ -80,6 +95,7 @@ public class AggregationManager {
             return;
         }
         ArrayList<AggregatedEncodePacket> packets = PACKET_BUFFER.remove(connection);
+        BATCH_START_NANOS.remove(connection);
         releaseBufferedPackets(packets);
     }
 
@@ -111,6 +127,7 @@ public class AggregationManager {
                 }
             });
             packets.clear();
+            BATCH_START_NANOS.remove(connection);
         } catch (Exception e) {
             if (packets != null) {
                 releaseBufferedPackets(packets);
@@ -127,10 +144,25 @@ public class AggregationManager {
         PACKET_BUFFER.entrySet().removeIf(e -> {
             if (!e.getKey().isConnected()) {
                 releaseBufferedPackets(e.getValue());
+                BATCH_START_NANOS.remove(e.getKey());
                 return true;
             }
             return false;
         });
+    }
+
+    private static boolean isBatchExpired(Connection connection) {
+        ArrayList<AggregatedEncodePacket> packets = PACKET_BUFFER.get(connection);
+        if (packets == null || packets.isEmpty()) {
+            BATCH_START_NANOS.remove(connection);
+            return false;
+        }
+        Long batchStart = BATCH_START_NANOS.get(connection);
+        if (batchStart == null) {
+            BATCH_START_NANOS.put(connection, System.nanoTime());
+            return false;
+        }
+        return System.nanoTime() - batchStart >= AggregationFlushHelper.getMaxBatchWaitNanos();
     }
 
     private static void releaseAllBufferedPackets() {
@@ -150,7 +182,7 @@ public class AggregationManager {
             return;
         }
         int maxPacketSize = getEffectiveTransportPayloadLimit(connection.getSending());
-        int estimatedSize = estimateAggregatePayloadSize(packets);
+        int estimatedSize = estimateAggregatePayloadSize(connection, packets);
         if (estimatedSize > maxPacketSize) {
             splitOrPassthrough(connection, packets, maxPacketSize);
             return;
@@ -178,18 +210,15 @@ public class AggregationManager {
         return CLIENTBOUND_CUSTOM_PAYLOAD_LIMIT;
     }
 
-    private static int estimateAggregatePayloadSize(ArrayList<AggregatedEncodePacket> packets) {
-        int rawSize = estimateAggregateRawSize(packets);
-        if (rawSize >= 32 && ZstdHelper.isAvailable()) {
-            return 1 + FriendlyByteBuf.getVarIntSize(rawSize) + rawSize + ZSTD_MAGICLESS_FLUSH_OVERHEAD;
-        }
-        return 1 + rawSize;
+    private static int estimateAggregatePayloadSize(Connection connection, ArrayList<AggregatedEncodePacket> packets) {
+        // 真正超限时由发送阶段 IllegalArgumentException 回退拆包
+        return 1 + estimateAggregateRawSize(connection, packets);
     }
 
-    private static int estimateAggregateRawSize(ArrayList<AggregatedEncodePacket> packets) {
+    private static int estimateAggregateRawSize(Connection connection, ArrayList<AggregatedEncodePacket> packets) {
         int total = 0;
         for (AggregatedEncodePacket packet : packets) {
-            total += Math.max(0, packet.getEncodedSizeEstimate());
+            total += Math.max(0, packet.getEncodedSizeEstimate(connection));
         }
         return total;
     }
@@ -203,7 +232,7 @@ public class AggregationManager {
         ArrayList<AggregatedEncodePacket> current = new ArrayList<>();
         int currentRawSize = 0;
         for (AggregatedEncodePacket packet : packets) {
-            int packetSize = Math.max(1, packet.getEncodedSizeEstimate());
+            int packetSize = Math.max(1, packet.getEncodedSizeEstimate(connection));
             int nextRawSize = currentRawSize + packetSize;
             if (!current.isEmpty() && estimateAggregatePayloadSizeForRawSize(nextRawSize) > maxPacketSize) {
                 flushBatch(connection, new ArrayList<>(current));
@@ -227,9 +256,6 @@ public class AggregationManager {
     }
 
     private static int estimateAggregatePayloadSizeForRawSize(int rawSize) {
-        if (rawSize >= 32 && ZstdHelper.isAvailable()) {
-            return 1 + FriendlyByteBuf.getVarIntSize(rawSize) + rawSize + ZSTD_MAGICLESS_FLUSH_OVERHEAD;
-        }
         return 1 + rawSize;
     }
 
@@ -252,5 +278,19 @@ public class AggregationManager {
         } finally {
             INTERNAL_SEND.remove();
         }
+    }
+
+    public synchronized static int getBufferedConnectionCount() {
+        return PACKET_BUFFER.size();
+    }
+
+    public synchronized static int getBufferedPacketCount() {
+        int total = 0;
+        for (ArrayList<AggregatedEncodePacket> packets : PACKET_BUFFER.values()) {
+            if (packets != null) {
+                total += packets.size();
+            }
+        }
+        return total;
     }
 }

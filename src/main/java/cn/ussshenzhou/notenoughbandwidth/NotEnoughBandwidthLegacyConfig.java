@@ -223,12 +223,18 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         if (type.startsWith("ftbquests:") || type.startsWith("ftbteams:") || type.startsWith("ftblibrary:")) {
             return true;
         }
-        // Simple Voice Chat 在代理链路与重放场景里都对包顺序和原始 payload 头更敏感，
-        // 这里统一直通，避免 NEB 聚合/索引头改写破坏其兼容性。
+        // SimpleVoiceChat在代理链路与重放场景里都对包顺序和原始payload头更敏感，
+        // 这里统一直通，避免 NEB聚合/索引头改写破坏其兼容性。
         if (type.startsWith("voicechat:")) {
             return true;
         }
-        // 经过 Velocity/VC 代理进入 Forge 子服时，命令补全、聊天签名、玩家列表等
+        // L2ScreenTracker使用ForgeSimpleChannel的双向消息分发；这类payload被重新封装进
+        // 聚合包后，部分环境下会在客户端回放阶段触发IndexedMessageCodec的方向校验失败。
+        // 这里直接按命名空间直通，避免改写其原始自定义包时序与方向语义。
+        if (type.startsWith("l2screentracker:")) {
+            return true;
+        }
+        // 经过 Velocity/VC代理进入Forge子服时，命令补全、聊天签名、玩家列表等
         // 自定义/时序敏感同步更容易被 flush 周期扰乱。即使用户未显式开启兼容模式，
         // 只要启用了 Velocity 代理兼容模式，也应自动套用这批额外直通名单。
         boolean proxySensitiveBypass = cfg.velocityProxyCompatibleMode && cfg.blackList.contains(type);

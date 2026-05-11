@@ -67,8 +67,9 @@ public abstract class ConnectionMixin {
             ci.cancel();
             return;
         }
-        AggregationManager.takeOver(packet, connection);
-        ci.cancel();
+        if (AggregationManager.takeOver(packet, connection)) {
+            ci.cancel();
+        }
     }
 
     @Inject(

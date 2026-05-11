@@ -1,6 +1,7 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
 import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
+import cn.ussshenzhou.notenoughbandwidth.indextype.NamespaceIndexManager;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import com.mojang.logging.LogUtils;
@@ -158,6 +159,10 @@ public class AggregatedEncodePacket {
     }
 
     public int getEncodedSizeEstimate() {
+        return getEncodedSizeEstimate(null);
+    }
+
+    public int getEncodedSizeEstimate(@Nullable Connection connection) {
         int dataSize = getPayloadBodySizeEstimate();
         if (dataSize <= 0) {
             return dataSize;
@@ -169,7 +174,7 @@ public class AggregatedEncodePacket {
         if (type == null) {
             return dataSize;
         }
-        return headerSize + getTypePrefixSize(type) + dataSize;
+        return headerSize + getTypePrefixSize(connection, type) + dataSize;
     }
 
     private int getPayloadBodySizeEstimate() {
@@ -192,11 +197,24 @@ public class AggregatedEncodePacket {
         }
     }
 
-    private static int getTypePrefixSize(ResourceLocation type) {
+    private static int getTypePrefixSize(@Nullable Connection connection, ResourceLocation type) {
         FriendlyByteBuf sizeProbe = new FriendlyByteBuf(Unpooled.buffer());
         try {
-            // 仅用于粗略拆包估算，不能依赖连接级索引上下文；
-            // 这里保守按未索引 RL 头估算，宁可高估，不影响正确性。
+            // 优先按连接级索引估算，避免全局表未就绪时退化为 RL 前缀高估
+            if (connection != null && NamespaceIndexManager.ready(connection) && NamespaceIndexManager.contains(connection, type)) {
+                var idx = NamespaceIndexManager.getCheckedIndex(connection, type);
+                sizeProbe.writeVarInt(idx.getA());
+                sizeProbe.writeVarInt(idx.getB());
+                return sizeProbe.readableBytes();
+            }
+            if (NamespaceIndexManager.ready() && NamespaceIndexManager.contains(type)) {
+                var idx = NamespaceIndexManager.getCheckedIndex(type);
+                if (idx != null) {
+                    sizeProbe.writeVarInt(idx.getA());
+                    sizeProbe.writeVarInt(idx.getB());
+                    return sizeProbe.readableBytes();
+                }
+            }
             sizeProbe.writeByte(0);
             sizeProbe.writeResourceLocation(type);
             return sizeProbe.readableBytes();

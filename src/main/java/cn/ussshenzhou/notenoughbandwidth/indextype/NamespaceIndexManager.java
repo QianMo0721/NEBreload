@@ -233,7 +233,7 @@ public class NamespaceIndexManager {
             init(List.of());
             return;
         }
-        init(new ArrayList<>(setup.getChannels(net.minecraft.network.ConnectionProtocol.PLAY).keySet()));
+        init(collectIndexedCustomTypes(setup));
     }
 
     public synchronized static void init(List<ResourceLocation> types) {
@@ -263,7 +263,7 @@ public class NamespaceIndexManager {
         }
         List<ResourceLocation> customTypes = setup == null
                 ? List.of()
-                : new ArrayList<>(setup.getChannels(net.minecraft.network.ConnectionProtocol.PLAY).keySet());
+                : collectIndexedCustomTypes(setup);
         ConnectionIndexTable table = ConnectionIndexTable.create(getVanillaTypes(), customTypes);
         CONNECTION_TABLE_CACHE.put(connection, table);
         ChannelAttributes.setConnectionIndexTable(connection, table);
@@ -355,6 +355,24 @@ public class NamespaceIndexManager {
             if (remoteChannels.containsKey(id)) {
                 result.add(id);
             }
+        });
+        return result;
+    }
+
+    private static List<ResourceLocation> collectIndexedCustomTypes(NetworkPayloadSetup setup) {
+        if (setup == null) {
+            return List.of();
+        }
+        var result = new ArrayList<ResourceLocation>();
+        setup.getChannels(net.minecraft.network.ConnectionProtocol.PLAY).forEach((id, channel) -> {
+            if (id == null || isInternalAggregationTransport(id)) {
+                return;
+            }
+            var registration = PayloadRegistry.getRegistration(id);
+            if (registration == null || registration.optional()) {
+                return;
+            }
+            result.add(id);
         });
         return result;
     }

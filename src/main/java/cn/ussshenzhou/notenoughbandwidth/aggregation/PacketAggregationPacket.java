@@ -99,11 +99,11 @@ public class PacketAggregationPacket implements NebPayload {
                 int compressedSize = compressed.readableBytes();
                 logCompressRatio(rawSize, compressedSize);
                 buffer.writeBytes(compressed);
-                this.bakedSize = 1 + rawSizeVarIntSize + compressedSize;
+                this.bakedSize = compressedSize;
                 compressed.release();
             } else {
                 buffer.writeBytes(rawBuf);
-                this.bakedSize = 1 + rawSize;
+                this.bakedSize = rawSize;
             }
 
             if (ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class).debugLog) {
@@ -232,12 +232,21 @@ public class PacketAggregationPacket implements NebPayload {
         } else {
             CustomPacketPrefixHelper.DecodedTypeInfo info = CustomPacketPrefixHelper.readInfo(decodingConnection, buf);
             if (!info.valid()) {
-                throw new IllegalArgumentException("Invalid NEB indexed payload prefix in aggregated packet");
+                int invalidSize = buf.readVarInt();
+                if (invalidSize >= 0 && invalidSize <= buf.readableBytes()) {
+                    buf.skipBytes(invalidSize);
+                }
+                LogUtils.getLogger().warn("[NEB] Corrupted sub-packet: invalid indexed payload prefix, size={}, readable={}", invalidSize, buf.readableBytes());
+                return;
             }
             type = info.type();
         }
         // s – data size
         int size = buf.readVarInt();
+        if (size < 0 || size > buf.readableBytes()) {
+            LogUtils.getLogger().warn("[NEB] Corrupted sub-packet: size={}, readable={}, vanilla={}, type={}", size, buf.readableBytes(), vanilla, type);
+            return;
+        }
         // d – data slice (retained so each AggregatedDecodePacket owns its ref)
         var slice = new FriendlyByteBuf(buf.readRetainedSlice(size));
         if (vanilla) {
