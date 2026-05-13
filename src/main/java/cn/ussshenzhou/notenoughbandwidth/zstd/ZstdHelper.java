@@ -145,4 +145,8 @@ public class ZstdHelper {
         CONNECTION_USE_CONTEXT.put(connection, shouldUseContext);
         return shouldUseContext;
     }
+
+    public static long getContextCacheSize() {
+        return ZSTD_CONTEXT_CACHE.size();
+    }
 }
