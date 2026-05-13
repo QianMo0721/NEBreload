@@ -64,21 +64,13 @@ public class AggregatedEncodePacket {
         }
         var entry = vanillaCodec.byId.get(id);
         var codec = (StreamCodec<ByteBuf, Packet<?>>) entry.serializer();
-        try {
-            codec.encode(buf, packet);
-        } catch (Exception e) {
-            throw e;
-        }
+        codec.encode(buf, packet);
     }
 
     @SuppressWarnings({"UnstableApiUsage", "unchecked"})
     private void encodeCustom(ByteBuf buf, PacketFlow packetFlow) {
         var codec = (StreamCodec<ByteBuf, CustomPacketPayload>) NetworkRegistry.getCodec(payload.type().id(), ConnectionProtocol.PLAY, packetFlow);
-        try {
-            codec.encode(buf, payload);
-        } catch (Exception e) {
-            throw e;
-        }
+        codec.encode(buf, payload);
     }
 
 }

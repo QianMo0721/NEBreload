@@ -27,6 +27,11 @@ import java.util.ArrayList;
 public class PacketAggregationPacket implements CustomPacketPayload {
     public static final Type<PacketAggregationPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(ModConstants.MOD_ID, "packet_aggregation_packet"));
 
+    public static boolean isDebug() {
+        var config = ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class);
+        return config != null && config.debugLog;
+    }
+
     @Override
     public Type<PacketAggregationPacket> type() {
         return TYPE;
@@ -98,17 +103,23 @@ public class PacketAggregationPacket implements CustomPacketPayload {
                     + " bytes ( "
                     + String.format("%.2f", 100f * compressedSize / rawSize)
                     + "%)";
-            LogUtils.getLogger().debug(log);
+            if (isDebug()) LogUtils.getLogger().debug(log);
         }
     }
 
     private void encodePackets(RegistryFriendlyByteBuf raw, AggregatedEncodePacket packet) {
         var type = packet.type;
+        var d = new RegistryFriendlyByteBuf(ByteBufAllocator.DEFAULT.buffer(), raw.registryAccess(), raw.getConnectionType());
+        try {
+            packet.encode(d, protocolInfo, connection.getSending());
+        } catch (Exception e) {
+            if (isDebug()) LogUtils.getLogger().warn("NEBL: Skipped packet {} due to encode failure: {}", type, e.getMessage());
+            d.release();
+            return;
+        }
         // p
         CustomPacketPrefixHelper.write(type, raw);
         // s
-        var d = new RegistryFriendlyByteBuf(ByteBufAllocator.DEFAULT.buffer(), raw.registryAccess(), raw.getConnectionType());
-        packet.encode(d, protocolInfo, connection.getSending());
         raw.writeVarInt(d.readableBytes());
         // d
         raw.writeBytes(d);

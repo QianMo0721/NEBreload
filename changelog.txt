@@ -1,4 +1,2 @@
-nebl-21.1.03-neoforge+1.21.1:
-Fixed Velocity proxy server compatibility;
-Update build.gradle files;
-Some minor improvements.
+nebl-21.1.04-neoforge+1.21.1:
+Fixed: skip encoding packets with null data components to prevent aggregation failure, close #19
