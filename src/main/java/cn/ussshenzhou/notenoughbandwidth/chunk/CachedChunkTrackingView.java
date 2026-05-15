@@ -109,6 +109,14 @@ public class CachedChunkTrackingView implements ChunkTrackingViewCompat {
                     }
                 } else {
                     context.removeTicket(chunkPos);
+                    // 命中延迟缓存并不意味着客户端一定仍然持有这个 chunk：
+                    // 前面可能已经因为原版 forget/light/radius 时序错位、客户端 storage 迁移、
+                    // 甚至代理链路延迟而把该 chunk 丢掉。此时若只保留“cache hit 不重发”，
+                    // 客户端就失去了唯一可靠的自愈入口，表现为空白区块或不同步区块。
+                    // 因此这里在回到 major 视野时，仍补走一次原版完整 startChunkTracking 语义，
+                    // 让客户端重新收到 chunk 主体/灯光生命周期包；DCC 的收益仍来自离开主视野时
+                    // 服务端不急着 forget/unload，而不是依赖“绝不重发”。
+                    context.startChunkTracking(chunkPos);
                     context.onCacheHit(chunkPos, hit.estimatedBodySize());
                     if (debug) {
                         LOGGER.debug("Cache hit at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());

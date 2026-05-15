@@ -164,6 +164,12 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:keep_alive");
         add("minecraft:ping");
         add("minecraft:pong");
+        // 区块主生命周期包必须保持原版时序直通；一旦被 flush 周期延后，
+        // 客户端可能先处理 center/radius 或 forget/light，导致 chunk 主体被忽略、
+        // light update 落空或渲染重建基于错误状态触发，出现空白区块/不同步区块。
+        add("minecraft:level_chunk_with_light");
+        add("minecraft:forget_level_chunk");
+        add("minecraft:light_update");
         add("minecraft:register");
         add("minecraft:unregister");
         add("minecraft:client_information");
