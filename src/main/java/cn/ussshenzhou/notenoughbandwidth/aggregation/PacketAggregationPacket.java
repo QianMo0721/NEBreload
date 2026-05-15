@@ -11,6 +11,7 @@ import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import cn.ussshenzhou.notenoughbandwidth.util.RawTrafficHelper;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import com.mojang.logging.LogUtils;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import net.minecraft.network.Connection;
 import net.minecraft.network.FriendlyByteBuf;
@@ -94,12 +95,18 @@ public class PacketAggregationPacket implements NebPayload {
             if (compress) {
                 // S – raw size for decompression
                 buffer.writeVarInt(rawSize);
-                var compressed = ZstdHelper.compress(connection, rawBuf);
-                int compressedSize = compressed.readableBytes();
-                logCompressRatio(rawSize, compressedSize);
-                buffer.writeBytes(compressed);
-                this.bakedSize = compressedSize;
-                compressed.release();
+                ByteBuf compressed = null;
+                try {
+                    compressed = ZstdHelper.compress(connection, rawBuf);
+                    int compressedSize = compressed.readableBytes();
+                    logCompressRatio(rawSize, compressedSize);
+                    buffer.writeBytes(compressed);
+                    this.bakedSize = compressedSize;
+                } finally {
+                    if (compressed != null) {
+                        compressed.release();
+                    }
+                }
             } else {
                 buffer.writeBytes(rawBuf);
                 this.bakedSize = rawSize;
@@ -233,6 +240,11 @@ public class PacketAggregationPacket implements NebPayload {
         }
         // s – data size
         int size = buf.readVarInt();
+        if (size < 0 || size > buf.readableBytes()) {
+            LogUtils.getLogger().warn("[NEB] Corrupted sub-packet: size={}, readable={}, vanilla={}, type={}",
+                    size, buf.readableBytes(), vanilla, type);
+            return;
+        }
         // d – data slice (retained so each AggregatedDecodePacket owns its ref)
         var slice = new FriendlyByteBuf(buf.readRetainedSlice(size));
         if (vanilla) {

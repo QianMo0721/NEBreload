@@ -45,23 +45,66 @@ public class ZstdHelper {
         return ZSTD_AVAILABLE;
     }
 
+    public static void clearCache(Connection connection) {
+        ZSTD_CONTEXT_CACHE.invalidate(connection);
+        CONNECTION_USE_CONTEXT.invalidate(connection);
+    }
+
     public static ByteBuf compress(Connection connection, ByteBuf raw) {
-        return Unpooled.wrappedBuffer(get(connection).compress(raw.nioBuffer()));
+        try {
+            ByteBuffer compressed = get(connection).compress(raw.nioBuffer());
+            return Unpooled.wrappedBuffer(compressed);
+        } catch (Exception e) {
+            if (connection != null) {
+                clearCache(connection);
+                try {
+                    ByteBuffer compressed = get(connection).compress(raw.nioBuffer());
+                    return Unpooled.wrappedBuffer(compressed);
+                } catch (Exception retryErr) {
+                    throw new RuntimeException("[NEB] Zstd compress failed even after cache clear", retryErr);
+                }
+            }
+            throw new RuntimeException("[NEB] Zstd compress failed", e);
+        }
     }
 
     public static ByteBuf decompress(Connection connection, ByteBuf compressed, int originalSize) {
         if (connection == null) {
             return decompressStateless(compressed, originalSize);
         }
-        if (compressed.isDirect()) {
-            return Unpooled.wrappedBuffer(get(connection).decompress(compressed.nioBuffer(), originalSize));
-        } else {
-            var directBuf = Unpooled.directBuffer(compressed.readableBytes());
+
+        try {
+            if (compressed.isDirect()) {
+                return Unpooled.wrappedBuffer(get(connection).decompress(compressed.nioBuffer(), originalSize));
+            } else {
+                var directBuf = Unpooled.directBuffer(compressed.readableBytes());
+                ByteBuffer decompressed = null;
+                try {
+                    directBuf.writeBytes(compressed, compressed.readerIndex(), compressed.readableBytes());
+                    decompressed = get(connection).decompress(directBuf.nioBuffer(), originalSize);
+                    return Unpooled.wrappedBuffer(decompressed);
+                } finally {
+                    directBuf.release();
+                }
+            }
+        } catch (Exception e) {
+            clearCache(connection);
             try {
-                compressed.getBytes(compressed.readerIndex(), directBuf);
-                return Unpooled.wrappedBuffer(get(connection).decompress(directBuf.nioBuffer(), originalSize));
-            } finally {
-                directBuf.release();
+                if (compressed.isDirect()) {
+                    return Unpooled.wrappedBuffer(get(connection).decompress(compressed.nioBuffer(), originalSize));
+                } else {
+                    var directBuf = Unpooled.directBuffer(compressed.readableBytes());
+                    ByteBuffer decompressed = null;
+                    try {
+                        directBuf.writeBytes(compressed, compressed.readerIndex(), compressed.readableBytes());
+                        decompressed = get(connection).decompress(directBuf.nioBuffer(), originalSize);
+                        return Unpooled.wrappedBuffer(decompressed);
+                    } finally {
+                        directBuf.release();
+                    }
+                }
+            } catch (Exception retryErr) {
+                throw new RuntimeException("[NEB] Zstd decompress failed even after cache clear", retryErr);
             }
         }
     }

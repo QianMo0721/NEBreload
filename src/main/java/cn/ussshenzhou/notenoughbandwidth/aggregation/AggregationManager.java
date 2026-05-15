@@ -25,6 +25,7 @@ public class AggregationManager {
     private static final int SERVERBOUND_CUSTOM_PAYLOAD_LIMIT = 32767;
     private static final ThreadLocal<Boolean> INTERNAL_SEND = ThreadLocal.withInitial(() -> false);
     private static final WeakHashMap<Connection, ArrayList<AggregatedEncodePacket>> PACKET_BUFFER = new WeakHashMap<>();
+    private static final WeakHashMap<Connection, Long> BUFFER_START_TIME = new WeakHashMap<>();
     private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(
             new ThreadFactoryBuilder().setNameFormat("NEB-Flush-thread").setDaemon(true).build());
     private static final ArrayList<ScheduledFuture<?>> TASKS = new ArrayList<>();
@@ -44,6 +45,7 @@ public class AggregationManager {
         }
         initialized = false;
         PACKET_BUFFER.clear();
+        BUFFER_START_TIME.clear();
         TASKS.forEach(task -> task.cancel(false));
         TASKS.clear();
         TASKS.add(TIMER.scheduleAtFixedRate(
@@ -56,8 +58,19 @@ public class AggregationManager {
 
     public synchronized static void takeOver(Packet<?> packet, Connection connection) {
         var type = PacketUtil.getTrueType(packet);
-        PACKET_BUFFER.computeIfAbsent(connection, k -> new ArrayList<>())
-                .add(new AggregatedEncodePacket(packet, type, connection.getSending()));
+        var list = PACKET_BUFFER.computeIfAbsent(connection, k -> {
+            BUFFER_START_TIME.put(connection, System.currentTimeMillis());
+            return new ArrayList<>();
+        });
+        if (list.isEmpty()) {
+            BUFFER_START_TIME.put(connection, System.currentTimeMillis());
+        }
+        list.add(new AggregatedEncodePacket(packet, type, connection.getSending()));
+        Long startTime = BUFFER_START_TIME.get(connection);
+        if (startTime != null
+                && System.currentTimeMillis() - startTime >= AggregationFlushHelper.getFlushPeriodInMilliseconds()) {
+            flushInternal(connection, list);
+        }
     }
 
     public synchronized static void flushConnection(Connection connection) {
@@ -90,9 +103,11 @@ public class AggregationManager {
                 }
             });
             packets.clear();
+            BUFFER_START_TIME.put(connection, System.currentTimeMillis());
             sendPackets.forEach(AggregatedEncodePacket::release);
         } catch (Exception e) {
             packets.clear();
+            BUFFER_START_TIME.put(connection, System.currentTimeMillis());
             LogUtils.getLogger().error("[NEB] Skipped: Failed to flush packets.", e);
         }
     }

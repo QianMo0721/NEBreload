@@ -38,7 +38,13 @@ public class CustomPacketPrefixHelper {
             buf.readVarInt();
             return new DecodedTypeInfo(buf.readResourceLocation(), false);
         } else {
-            return new DecodedTypeInfo(NamespaceIndexManager.getIdentifier(buf.readVarInt(), buf.readVarInt()), true);
+            int namespaceId = buf.readVarInt();
+            int pathId = buf.readVarInt();
+            ResourceLocation type = NamespaceIndexManager.getIdentifier(namespaceId, pathId);
+            if (type != null) {
+                return new DecodedTypeInfo(type, true);
+            }
+            return new DecodedTypeInfo(null, true);
         }
     }
 

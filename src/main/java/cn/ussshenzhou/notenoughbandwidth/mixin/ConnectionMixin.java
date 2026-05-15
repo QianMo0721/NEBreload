@@ -14,6 +14,7 @@ import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
+import net.minecraft.network.protocol.game.ClientboundSetCameraPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
 import org.spongepowered.asm.mixin.Mixin;
@@ -29,7 +30,7 @@ import javax.annotation.Nullable;
  */
 @Mixin(value = Connection.class, priority = 1)
 public abstract class ConnectionMixin {
-    @Inject(method = "send", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V", at = @At("HEAD"), cancellable = true)
     private void nebAggregatePacket(Packet<?> packet, @Nullable PacketSendListener listener, CallbackInfo ci) {
         Connection connection = (Connection) (Object) this;
         if (AggregationManager.isInternalSend()) {
@@ -72,6 +73,7 @@ public abstract class ConnectionMixin {
                 || packet instanceof ClientboundTeleportEntityPacket
                 || packet instanceof ClientboundSetEntityMotionPacket
                 || packet instanceof ClientboundRemoveEntitiesPacket
-                || packet instanceof ClientboundBlockUpdatePacket;
+                || packet instanceof ClientboundBlockUpdatePacket
+                || packet instanceof ClientboundSetCameraPacket;
     }
 }

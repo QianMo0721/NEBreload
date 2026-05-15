@@ -119,9 +119,7 @@ repositories {
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
-    annotationProcessor fileTree("${gradle.gradleUserHomeDir}/caches/modules-2/files-2.1/org.spongepowered/mixin") {
-        include '**/mixin-0.8.5-processor.jar'
-    }
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
     // 运行时必须随 mod 一起打包的依赖，改用 ForgeGradle 自带的 jarJar，
     // 避免手工 fat-jar 破坏 Forge 模组元数据结构。

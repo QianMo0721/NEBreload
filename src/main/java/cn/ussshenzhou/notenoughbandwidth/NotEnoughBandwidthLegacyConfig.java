@@ -158,6 +158,7 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:accept_teleportation");
         add("minecraft:client_command");
         add("minecraft:player_action");
+        add("minecraft:player_command");
         add("minecraft:interact");
         add("minecraft:use_item");
         add("minecraft:use_item_on");
@@ -191,6 +192,7 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:change_difficulty");
         add("minecraft:set_default_spawn_position");
         add("minecraft:player_position");
+        add("minecraft:set_camera");
         add("minecraft:player_abilities");
         add("minecraft:set_health");
         add("minecraft:set_experience");

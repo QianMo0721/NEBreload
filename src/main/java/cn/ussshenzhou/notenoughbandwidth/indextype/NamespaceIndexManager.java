@@ -12,6 +12,7 @@ import net.minecraft.util.Tuple;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.loading.FMLEnvironment;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -215,7 +216,9 @@ public class NamespaceIndexManager {
     }};
 
     public static boolean isInitialized() {
-        return initialized;
+        synchronized (NamespaceIndexManager.class) {
+            return initialized;
+        }
     }
 
     /**
@@ -224,11 +227,11 @@ public class NamespaceIndexManager {
      * locally registered channels, because only mutually visible channels may be
      * indexed safely on both sides.
      */
-    public synchronized static void initFromNegotiatedChannels(java.util.Map<ResourceLocation, String> remoteChannels) {
+    public static void initFromNegotiatedChannels(java.util.Map<ResourceLocation, String> remoteChannels) {
         init(buildNegotiatedPayloadTypes(remoteChannels));
     }
 
-    public synchronized static void initFromPayloadSetup(NetworkPayloadSetup setup) {
+    public static void initFromPayloadSetup(NetworkPayloadSetup setup) {
         if (setup == null) {
             init(List.of());
             return;
@@ -236,29 +239,31 @@ public class NamespaceIndexManager {
         init(new ArrayList<>(setup.getChannels(net.minecraft.network.ConnectionProtocol.PLAY).keySet()));
     }
 
-    public synchronized static void init(List<ResourceLocation> types) {
-        if (FMLEnvironment.dist == Dist.DEDICATED_SERVER && initialized) {
-            return;
+    public static void init(List<ResourceLocation> types) {
+        synchronized (NamespaceIndexManager.class) {
+            if (FMLEnvironment.dist == Dist.DEDICATED_SERVER && initialized) {
+                return;
+            }
+            initialized = false;
+            NAMESPACES.clear();
+            PATHS.clear();
+            NAMESPACE_MAP.clear();
+            PATH_MAPS.clear();
+
+            // 0 reserved for un-indexed payloads, mirroring the NeoForge branch.
+            AtomicInteger namespaceIndex = new AtomicInteger(1);
+            NAMESPACES.add("ILLEGAL");
+            PATHS.add(new ArrayList<>());
+
+            indexVanillaPackets(namespaceIndex);
+            indexCustomPayloads(types, namespaceIndex);
+
+            initTrace();
+            if (NAMESPACES.size() > 4096 || PATHS.stream().anyMatch(l -> l.size() > 4096)) {
+                throw new RuntimeException("There are too many namespaces and/or paths (Max 4096 namespaces, 4096 paths for each namespace). NEB is not designed to work with so many mods.");
+            }
+            initialized = true;
         }
-        initialized = false;
-        NAMESPACES.clear();
-        PATHS.clear();
-        NAMESPACE_MAP.clear();
-        PATH_MAPS.clear();
-
-        // 0 reserved for un-indexed payloads, mirroring the NeoForge branch.
-        AtomicInteger namespaceIndex = new AtomicInteger(1);
-        NAMESPACES.add("ILLEGAL");
-        PATHS.add(new ArrayList<>());
-
-        indexVanillaPackets(namespaceIndex);
-        indexCustomPayloads(types, namespaceIndex);
-
-        initTrace();
-        if (NAMESPACES.size() > 4096 || PATHS.stream().anyMatch(l -> l.size() > 4096)) {
-            throw new RuntimeException("There are too many namespaces and/or paths (Max 4096 namespaces, 4096 paths for each namespace). NEB is not designed to work with so many mods.");
-        }
-        initialized = true;
     }
 
     private static void indexVanillaPackets(AtomicInteger namespaceIndex) {
@@ -327,25 +332,51 @@ public class NamespaceIndexManager {
     }
 
     public static boolean contains(ResourceLocation type) {
-        if (!initialized) {
-            return false;
+        synchronized (NamespaceIndexManager.class) {
+            if (!initialized) {
+                return false;
+            }
+            if (!NAMESPACE_MAP.containsKey(type.getNamespace())) {
+                return false;
+            }
+            int ns = NAMESPACE_MAP.getInt(type.getNamespace());
+            var pathMap = PATH_MAPS.get(ns);
+            return pathMap != null && pathMap.containsKey(type.getPath());
         }
-        return NAMESPACE_MAP.containsKey(type.getNamespace()) && PATH_MAPS.get(NAMESPACE_MAP.getInt(type.getNamespace())).containsKey(type.getPath());
     }
 
     public static Tuple<Integer, Integer> getCheckedIndex(ResourceLocation type) {
-        int namespaceId = NAMESPACE_MAP.getInt(type.getNamespace());
-        return new Tuple<>(namespaceId, PATH_MAPS.get(namespaceId).getInt(type.getPath()));
+        synchronized (NamespaceIndexManager.class) {
+            if (!initialized) {
+                return null;
+            }
+            if (!NAMESPACE_MAP.containsKey(type.getNamespace())) {
+                return null;
+            }
+            int namespaceId = NAMESPACE_MAP.getInt(type.getNamespace());
+            var pathMap = PATH_MAPS.get(namespaceId);
+            if (pathMap == null || !pathMap.containsKey(type.getPath())) {
+                return null;
+            }
+            return new Tuple<>(namespaceId, pathMap.getInt(type.getPath()));
+        }
     }
 
+    @Nullable
     public static ResourceLocation getIdentifier(int namespaceIndex, int pathIndex) {
-        if (!initialized) {
-            return null;
+        synchronized (NamespaceIndexManager.class) {
+            if (!initialized) {
+                return null;
+            }
+            if (namespaceIndex == 0 || namespaceIndex >= NAMESPACES.size()) {
+                return null;
+            }
+            var paths = PATHS.get(namespaceIndex);
+            if (paths == null || pathIndex < 0 || pathIndex >= paths.size()) {
+                return null;
+            }
+            return ResourceLocation.fromNamespaceAndPath(NAMESPACES.get(namespaceIndex), paths.get(pathIndex));
         }
-        if (namespaceIndex == 0) {
-            throw new UnsupportedOperationException("namespaceIndex should not be 0");
-        }
-        return ResourceLocation.fromNamespaceAndPath(NAMESPACES.get(namespaceIndex), PATHS.get(namespaceIndex).get(pathIndex));
     }
 
     public static boolean canAggregate(ResourceLocation type) {
@@ -353,6 +384,8 @@ public class NamespaceIndexManager {
     }
 
     public static boolean ready() {
-        return initialized;
+        synchronized (NamespaceIndexManager.class) {
+            return initialized;
+        }
     }
 }
