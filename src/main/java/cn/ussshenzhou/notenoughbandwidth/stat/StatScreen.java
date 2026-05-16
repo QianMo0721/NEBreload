@@ -1,15 +1,10 @@
 package cn.ussshenzhou.notenoughbandwidth.stat;
 
 import cn.ussshenzhou.network.StatQuery;
-import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
-import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-
-import java.lang.management.BufferPoolMXBean;
-import java.lang.management.ManagementFactory;
 
 import static cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager.*;
 
@@ -44,13 +39,6 @@ public class StatScreen extends Screen {
 
     private int tick = 0;
 
-    private String directCountText = "-";
-    private String directMemoryText = "-";
-    private String directCapacityText = "-";
-    private String nebZstdContextText = "-";
-    private String nebBufferedConnectionText = "-";
-    private String nebBufferedPacketText = "-";
-
     public StatScreen() {
         super(Component.empty());
     }
@@ -74,13 +62,6 @@ public class StatScreen extends Screen {
             rawServerOutboundText = formatOutbound((int) outboundSpeedRawServer, outboundBytesRawServer);
             ratioServerInboundText = getRatio(inboundBytesBakedServer, inboundBytesRawServer);
             ratioServerOutboundText = getRatio(outboundBytesBakedServer, outboundBytesRawServer);
-
-            directCountText = "DirectByteBuffer实例数(JMX): " + getDirectBufferCount();
-            directMemoryText = "Direct内存占用: " + getReadableSize(getDirectMemoryUsed());
-            directCapacityText = "Direct总容量: " + getReadableSize(getDirectCapacity());
-            nebZstdContextText = "NEB Zstd Context Cache: " + ZstdHelper.getContextCacheSize();
-            nebBufferedConnectionText = "NEB Aggregation Buffered Connections: " + AggregationManager.getBufferedConnectionCount();
-            nebBufferedPacketText = "NEB Aggregation Buffered Packets: " + AggregationManager.getBufferedPacketCount();
         }
         tick++;
     }
@@ -153,52 +134,7 @@ public class StatScreen extends Screen {
             guiGraphics.drawString(this.font, ratioServerInboundText, leftX + 80, 200, RATIO_COLOR);
             guiGraphics.drawString(this.font, ratioServerOutboundText, rightX, 200, RATIO_COLOR);
         }
-
-        int memBaseY = this.height - 36;
-        int panelTop = memBaseY - 4;
-        int panelBottom = this.height - 6;
-        guiGraphics.fill(6, panelTop, this.width - 6, panelBottom, 0xB0000000);
-        final float memScale = 0.78f;
-        drawScaledString(guiGraphics, "[NEB Memory Analyzer]", leftX, memBaseY, TITLE_COLOR, memScale);
-        drawScaledString(guiGraphics, directCountText, leftX, memBaseY + 8, ACTUAL_COLOR, memScale);
-        drawScaledString(guiGraphics, directMemoryText, leftX, memBaseY + 15, RAW_COLOR, memScale);
-        drawScaledString(guiGraphics, directCapacityText, leftX, memBaseY + 22, RATIO_COLOR, memScale);
-        drawScaledString(guiGraphics, nebZstdContextText, rightX, memBaseY + 8, ACTUAL_COLOR, memScale);
-        drawScaledString(guiGraphics, nebBufferedConnectionText, rightX, memBaseY + 15, RAW_COLOR, memScale);
-        drawScaledString(guiGraphics, nebBufferedPacketText, rightX, memBaseY + 22, RATIO_COLOR, memScale);
-
         super.render(guiGraphics, mouseX, mouseY, partialTick);
-    }
-
-    private static long getDirectBufferCount() {
-        BufferPoolMXBean bean = getBufferPool("direct");
-        return bean == null ? -1 : bean.getCount();
-    }
-
-    private static long getDirectMemoryUsed() {
-        BufferPoolMXBean bean = getBufferPool("direct");
-        return bean == null ? -1 : bean.getMemoryUsed();
-    }
-
-    private static long getDirectCapacity() {
-        BufferPoolMXBean bean = getBufferPool("direct");
-        return bean == null ? -1 : bean.getTotalCapacity();
-    }
-
-    private static BufferPoolMXBean getBufferPool(String name) {
-        for (BufferPoolMXBean bean : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
-            if (name.equalsIgnoreCase(bean.getName())) {
-                return bean;
-            }
-        }
-        return null;
-    }
-
-    private void drawScaledString(GuiGraphics guiGraphics, String text, int x, int y, int color, float scale) {
-        guiGraphics.pose().pushPose();
-        guiGraphics.pose().scale(scale, scale, 1.0f);
-        guiGraphics.drawString(this.font, text, Math.round(x / scale), Math.round(y / scale), color);
-        guiGraphics.pose().popPose();
     }
 
     private boolean hasSufficientPermissions() {
