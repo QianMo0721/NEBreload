@@ -24,11 +24,7 @@ public class CustomPacketPayloadMixin {
 
     @Redirect(method = "writeCap(Lnet/minecraft/network/FriendlyByteBuf;Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload$Type;Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/network/FriendlyByteBuf;writeResourceLocation(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/network/FriendlyByteBuf;"))
     private FriendlyByteBuf neblIndexedHeaderEncode(FriendlyByteBuf buf, ResourceLocation identifier) {
-        if (val$protocol != ConnectionProtocol.PLAY) {
-            buf.writeResourceLocation(identifier);
-            return buf;
-        }
-        if (NotEnoughBandwidthLegacyConfig.skipType(identifier.toString())) {
+        if (val$protocol != ConnectionProtocol.PLAY || NotEnoughBandwidthLegacyConfig.skipType(identifier.toString())) {
             buf.writeResourceLocation(identifier);
             return buf;
         }

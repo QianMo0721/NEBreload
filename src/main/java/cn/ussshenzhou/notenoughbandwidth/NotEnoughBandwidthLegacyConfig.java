@@ -28,8 +28,9 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     }};
     public boolean debugLog = false;
     public int contextLevel = 23;
+    public boolean dccEnabled = true;
     public int dccSizeLimit = 200;
-    public int dccDistance = 15;
+    public int dccDistance = 5;
     public int dccTimeout = 60;
     public String maxPacketSize = "4MB";
     @Expose(serialize = false, deserialize = false)

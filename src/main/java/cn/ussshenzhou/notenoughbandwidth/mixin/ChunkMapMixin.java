@@ -58,7 +58,7 @@ public abstract class ChunkMapMixin {
             public void putTicket(ChunkPos pos, int ticks) {
                 TicketType ticketType = TICKET_TYPE;
                 if (ticketType == null || ticketType.timeout() != ticks) {
-                    ticketType = TICKET_TYPE = TicketType.create("neb_cache", (p_9471_, p_9472_) -> 0, ticks);
+                    ticketType = TICKET_TYPE = TicketType.create("neb_cache", (posA, posB) -> 0, ticks);
                 }
                 getDistanceManager().addRegionTicket(ticketType, pos, 1, pos);
             }

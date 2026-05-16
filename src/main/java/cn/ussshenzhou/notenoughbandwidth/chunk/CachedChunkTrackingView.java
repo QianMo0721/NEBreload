@@ -146,6 +146,7 @@ public class CachedChunkTrackingView implements ChunkTrackingView {
         int chunkCacheBufferSize = cfg.dccSizeLimit;
         int chunkCacheDistance = cfg.dccDistance;
         int chunkCacheTimeout = cfg.dccTimeout;
+        boolean dccEnabled = cfg.dccEnabled;
         boolean isDebug = cfg.debugLog;
         long chunkCacheTimeoutMilli = TimeUnit.SECONDS.toMillis(chunkCacheTimeout);
         if (!major.equals(next)) {
@@ -155,22 +156,24 @@ public class CachedChunkTrackingView implements ChunkTrackingView {
             //    2) If not, call onEnter.
             // 2. For newly-invisible chunks, if they are within cache distance, push them into cache.
             ChunkTrackingView.difference(major, next, chunkPos -> {
-                if (cache.remove(chunkPos.toLong()) == NO_CACHE) {
+                if (cache.remove(chunkPos.toLong()) == NO_CACHE || !dccEnabled) {
                     context.startChunkTracking(chunkPos);
                     if (isDebug) LOGGER.debug("NEBL: Cache miss at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
                 } else {
                     if (isDebug) LOGGER.debug("NEBL: Cache hit at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
                 }
             }, chunkPos -> {
-                if (next.center().getChessboardDistance(chunkPos) <= chunkCacheDistance) {
+                if (dccEnabled) {
                     context.putTicket(player.chunkPosition(), chunkCacheTimeout * 20 /* FIXME: /tick wrap will break this! */);
                     cache.put(chunkPos.toLong(), now);
                 }
             });
 
             // Remove all chunks that are too far from users.
+            int cacheEvictDistance = next.viewDistance() + chunkCacheDistance;
             enumerate((pos, time) -> {
-                if (next.center().getChessboardDistance(ChunkPos.getX(pos), ChunkPos.getZ(pos)) > chunkCacheDistance) {
+                int dist = next.center().getChessboardDistance(ChunkPos.getX(pos), ChunkPos.getZ(pos));
+                if (dist > cacheEvictDistance) {
                     ChunkPos chunkPos = new ChunkPos(pos);
                     context.stopChunkTracking(chunkPos);
                     if (isDebug) LOGGER.debug("NEBL: Remove {} from {}'s chunk cache: too far away.", chunkPos, player.getGameProfile().getName());

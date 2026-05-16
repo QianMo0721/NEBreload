@@ -1,2 +1,4 @@
-nebl-21.1.04-neoforge+1.21.1:
-Fixed: skip encoding packets with null data components to prevent aggregation failure, close #19
+nebl-21.1.05-neoforge+1.21.1:
+Fixed: DCC caching mechanism; 
+Add: dccEnabled configuration; 
+Adjust: dccDistance now defaults to 5.
