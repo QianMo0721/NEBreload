@@ -111,13 +111,13 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     public String commentDccSizeLimit = "单个玩家最多允许保留在延迟区块缓存中的区块数量。超过后会优先淘汰最早进入缓存的区块。";
 
     @SerializedName(value = "区块缓存上限", alternate = {"dccSizeLimit"})
-    public int dccSizeLimit = 200;
+    public int dccSizeLimit = 1200;
 
     @SerializedName("说明-区块缓存距离")
     public String commentDccDistance = "玩家离开主视野后，仍允许继续缓存的棋盘距离（按区块计）。数值越大，缓存保留范围越大。";
 
     @SerializedName(value = "区块缓存距离", alternate = {"dccDistance"})
-    public int dccDistance = 15;
+    public int dccDistance = 8;
 
     @SerializedName("说明-区块缓存超时秒数")
     public String commentDccTimeout = "区块离开主视野后，最多还能在缓存中保留的秒数。超时后会被正式卸载。";

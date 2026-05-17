@@ -109,7 +109,16 @@ public class CachedChunkTrackingView implements ChunkTrackingViewCompat {
                     }
                 } else {
                     context.removeTicket(chunkPos);
-                    context.onCacheHit(chunkPos, hit.estimatedBodySize());
+                    // DCC 实际启用时，缓存命中的设计目标就是让客户端继续沿用已持有的 chunk，
+                    // 因此遵循“不重发 chunk 主体”的原则，只补统计。
+                    // 若 DCC 已关闭或当前配置已使其不可用，则不能再假定客户端一定还保留该 chunk；
+                    // 此时即使命中缓存记录，也补走一次原版 startChunkTracking，保证客户端可自愈。
+                    if (cfg.isDelayedChunkCachingUsable()) {
+                        context.onCacheHit(chunkPos, hit.estimatedBodySize());
+                    } else {
+                        context.startChunkTracking(chunkPos);
+                        context.onCacheHit(chunkPos, hit.estimatedBodySize());
+                    }
                     if (debug) {
                         LOGGER.debug("Cache hit at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
                     }
