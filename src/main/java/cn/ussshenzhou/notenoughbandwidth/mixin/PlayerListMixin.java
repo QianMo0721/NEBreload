@@ -17,7 +17,8 @@ public class PlayerListMixin {
     ), argsOnly = true)
     private int neblModifyViewDistance(int viewDistance) {
         try {
-            return viewDistance + NotEnoughBandwidthLegacyConfig.get().dccDistance;
+            var config = NotEnoughBandwidthLegacyConfig.get();
+            return config.dccEnabled ? viewDistance + config.dccDistance : viewDistance;
         } catch (IllegalStateException e) {
             return viewDistance;
         }

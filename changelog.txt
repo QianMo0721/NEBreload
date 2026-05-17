@@ -1,4 +1,2 @@
-nebl-21.1.05-neoforge+1.21.1:
-Fixed: DCC caching mechanism; 
-Add: dccEnabled configuration; 
-Adjust: dccDistance now defaults to 5.
+nebl-21.1.06-neoforge+1.21.1:
+Fixed compatibility between DCC and long-range view modules (e.g., voxy, dh); requires the dccEnabled configuration to be set to false.

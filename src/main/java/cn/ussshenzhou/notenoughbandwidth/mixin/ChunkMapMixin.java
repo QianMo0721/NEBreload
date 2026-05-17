@@ -1,5 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.chunk.CachedChunkTrackingView;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
@@ -7,6 +8,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import org.spongepowered.asm.mixin.*;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * @author Burning_TNT
@@ -35,11 +39,11 @@ public abstract class ChunkMapMixin {
 
     /**
      * @author Burning_TNT
-     * @reason NEB overwrites original chunk map update strategy.
+     * @reason NEBL overwrites original chunk map update strategy only when DCC is enabled.
      */
-    @Overwrite
-    private void updateChunkTracking(ServerPlayer player) {
-        if (player.level() != this.level) {
+    @Inject(method = "updateChunkTracking", at = @At("HEAD"), cancellable = true)
+    private void neblUpdateChunkTracking(ServerPlayer player, CallbackInfo ci) {
+        if (player.level() != this.level || !NotEnoughBandwidthLegacyConfig.get().dccEnabled) {
             return;
         }
 
@@ -63,5 +67,6 @@ public abstract class ChunkMapMixin {
                 getDistanceManager().addRegionTicket(ticketType, pos, 1, pos);
             }
         });
+        ci.cancel();
     }
 }
