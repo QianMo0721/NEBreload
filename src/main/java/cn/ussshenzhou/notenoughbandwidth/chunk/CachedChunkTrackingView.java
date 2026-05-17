@@ -97,42 +97,45 @@ public class CachedChunkTrackingView implements ChunkTrackingViewCompat {
         int chunkCacheDistance = cfg.getDccDistanceSafe();
         int chunkCacheTimeout = cfg.getDccTimeoutSafeSeconds();
         long chunkCacheTimeoutMilli = TimeUnit.SECONDS.toMillis(chunkCacheTimeout);
+        boolean dccEnabled = cfg.enableDelayedChunkCaching;
         boolean debug = cfg.debugLog;
 
         if (!major.equals(next)) {
             ChunkTrackingViewCompat.difference(major, next, chunkPos -> {
                 CacheEntry hit = cache.remove(chunkPos.toLong());
-                if (hit == null) {
+                if (hit == null || !dccEnabled) {
                     context.startChunkTracking(chunkPos);
                     if (debug) {
-                        LOGGER.debug("Cache miss at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
+                        LOGGER.info("Cache miss at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
                     }
                 } else {
                     context.removeTicket(chunkPos);
                     context.onCacheHit(chunkPos, hit.estimatedBodySize());
                     if (debug) {
-                        LOGGER.debug("Cache hit at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
+                        LOGGER.info("Cache hit at {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
                     }
                 }
             }, chunkPos -> {
-                if (next.center().getChessboardDistance(chunkPos) <= chunkCacheDistance) {
+                if (dccEnabled) {
                     context.putTicket(chunkPos, chunkCacheTimeout * 20);
                     cache.putAndMoveToLast(chunkPos.toLong(), new CacheEntry(now, Math.max(0, context.estimateChunkBodySize(chunkPos))));
                     if (debug) {
-                        LOGGER.debug("Caching {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
+                        LOGGER.info("Caching {} in {}'s chunk cache.", chunkPos, player.getGameProfile().getName());
                     }
                 } else {
                     context.stopChunkTracking(chunkPos);
                 }
             });
 
+            int cacheEvictDistance = next.viewDistance() + chunkCacheDistance;
             enumerate((pos, entry) -> {
                 ChunkPos chunkPos = new ChunkPos(pos);
-                if (next.center().getChessboardDistance(chunkPos) > chunkCacheDistance) {
+                int dist = next.center().getChessboardDistance(chunkPos);
+                if (dist > cacheEvictDistance) {
                     context.removeTicket(chunkPos);
                     context.stopChunkTracking(chunkPos);
                     if (debug) {
-                        LOGGER.debug("Remove {} from {}'s chunk cache: too far away.", chunkPos, player.getGameProfile().getName());
+                        LOGGER.info("Remove {} from {}'s chunk cache: too far away.", chunkPos, player.getGameProfile().getName());
                     }
                     return CacheConsumer.REMOVE;
                 }
@@ -147,7 +150,7 @@ public class CachedChunkTrackingView implements ChunkTrackingViewCompat {
                 context.removeTicket(chunkPos);
                 context.stopChunkTracking(chunkPos);
                 if (debug) {
-                    LOGGER.debug("Remove {} from {}'s chunk cache: {}", chunkPos, player.getGameProfile().getName(), legacy ? "timeout" : "buffer is full");
+                    LOGGER.info("Remove {} from {}'s chunk cache: {}", chunkPos, player.getGameProfile().getName(), legacy ? "timeout" : "buffer is full");
                 }
                 return CacheConsumer.REMOVE;
             }

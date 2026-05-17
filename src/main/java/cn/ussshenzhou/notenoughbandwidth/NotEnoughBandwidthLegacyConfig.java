@@ -83,10 +83,10 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
      */
 
     @SerializedName("说明-延迟区块缓存")
-    public String commentEnableDelayedChunkCaching = "延迟区块缓存总开关。开启后会启用扩展视距与区块缓存联动逻辑；关闭后将整体退回原版行为。";
+    public String commentEnableDelayedChunkCaching = "延迟区块缓存总开关。开启后会启用扩展视距与区块缓存联动逻辑（易出现空洞区块，当前功能实现不稳定，不推荐开启）。";
 
     @SerializedName(value = "启用延迟区块缓存", alternate = {"enableDelayedChunkCaching"})
-    public boolean enableDelayedChunkCaching = true;
+    public boolean enableDelayedChunkCaching = false;
 
     @SerializedName("说明-区块缓存上限")
     public String commentDccSizeLimit = "单个玩家最多允许保留在延迟区块缓存中的区块数量。超过后会优先淘汰最早进入缓存的区块。";
@@ -98,7 +98,7 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
     public String commentDccDistance = "玩家离开主视野后，仍允许继续缓存的棋盘距离（按区块计）。数值越大，缓存保留范围越大。";
 
     @SerializedName(value = "区块缓存距离", alternate = {"dccDistance"})
-    public int dccDistance = 15;
+    public int dccDistance = 5;
 
     @SerializedName("说明-区块缓存超时秒数")
     public String commentDccTimeout = "区块离开主视野后，最多还能在缓存中保留的秒数。超时后会被正式卸载。";
