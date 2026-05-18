@@ -1,11 +1,17 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.loading.FMLEnvironment;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
 
@@ -22,14 +28,37 @@ import java.util.Set;
  */
 public class NebMixinConfigPlugin implements IMixinConfigPlugin {
     private static final Set<String> SERVER_ONLY_MIXINS = Set.of(
+            "cn.ussshenzhou.notenoughbandwidth.mixin.ServerGamePacketListenerImplMixin"
+    );
+
+    // DCC mixins && server-only
+    private static final Set<String> DCC_MIXINS = Set.of(
             "cn.ussshenzhou.notenoughbandwidth.mixin.ChunkMapMixin",
             "cn.ussshenzhou.notenoughbandwidth.mixin.PlayerListMixin",
-            "cn.ussshenzhou.notenoughbandwidth.mixin.ServerPlayerChunkTrackingViewMixin",
-            "cn.ussshenzhou.notenoughbandwidth.mixin.ServerGamePacketListenerImplMixin"
+            "cn.ussshenzhou.notenoughbandwidth.mixin.ServerPlayerChunkTrackingViewMixin"
     );
 
     @Override
     public void onLoad(String mixinPackage) {
+    }
+
+    private static boolean getDccStatus() {
+        Path configPath = Paths.get("config", "NotEnoughBandwidthLegacyConfig.json");
+        if (!Files.exists(configPath)) {
+            return false;
+        }
+        try {
+            String json = Files.readString(configPath, StandardCharsets.UTF_8);
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            if (root.has("启用延迟区块缓存")) {
+                return root.get("启用延迟区块缓存").getAsBoolean();
+            }
+            if (root.has("enableDelayedChunkCaching")) {
+                return root.get("enableDelayedChunkCaching").getAsBoolean();
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     @Override
@@ -40,6 +69,9 @@ public class NebMixinConfigPlugin implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         if (FMLEnvironment.dist == Dist.CLIENT && SERVER_ONLY_MIXINS.contains(mixinClassName)) {
+            return false;
+        }
+        if (DCC_MIXINS.contains(mixinClassName) && (FMLEnvironment.dist == Dist.CLIENT || !getDccStatus())) {
             return false;
         }
         return true;
