@@ -1,16 +1,12 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
-import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacy;
-import cn.ussshenzhou.notenoughbandwidth.util.DefaultChannelPipelineHelper;
-import cn.ussshenzhou.notenoughbandwidth.util.LegacyCustomPayloadAccessor;
-import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import io.netty.buffer.Unpooled;
-import net.minecraft.network.EnumPacketDirection;
+import io.netty.channel.Channel;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
-import net.minecraft.network.PacketBuffer;
-import net.minecraft.util.ResourceLocation;
+import net.minecraft.network.play.client.CPacketCustomPayload;
+import net.minecraft.network.play.server.SPacketCustomPayload;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -21,27 +17,40 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-/**
- * @author USS_Shenzhou
- */
-public class AggregationManager {
+public final class AggregationManager {
+    private static final int CLIENTBOUND_CUSTOM_PAYLOAD_LIMIT = 1024 * 1024;
     private static final int SERVERBOUND_CUSTOM_PAYLOAD_LIMIT = 32767;
+    private static final ThreadLocal<Boolean> INTERNAL_SEND = new ThreadLocal<Boolean>() {
+        @Override
+        protected Boolean initialValue() {
+            return Boolean.FALSE;
+        }
+    };
     private static final WeakHashMap<NetworkManager, ArrayList<AggregatedEncodePacket>> PACKET_BUFFER = new WeakHashMap<NetworkManager, ArrayList<AggregatedEncodePacket>>();
+    private static final WeakHashMap<NetworkManager, Long> BATCH_START_NANOS = new WeakHashMap<NetworkManager, Long>();
     private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(
             new ThreadFactoryBuilder().setNameFormat("NEB-Flush-thread").setDaemon(true).build());
     private static final ArrayList<ScheduledFuture<?>> TASKS = new ArrayList<ScheduledFuture<?>>();
-    private static volatile boolean initialized;
+    private static volatile boolean initialized = false;
+
+    private AggregationManager() {
+    }
 
     public static boolean isInitialized() {
         return initialized;
+    }
+
+    public static boolean isInternalSend() {
+        return INTERNAL_SEND.get();
     }
 
     public static synchronized void init() {
         if (initialized) {
             return;
         }
-        initialized = false;
+        releaseAllBufferedPackets();
         PACKET_BUFFER.clear();
+        BATCH_START_NANOS.clear();
         for (ScheduledFuture<?> task : TASKS) {
             task.cancel(false);
         }
@@ -55,104 +64,208 @@ public class AggregationManager {
         initialized = true;
     }
 
-    public static synchronized void takeOver(Packet<?> packet, NetworkManager connection) {
-        ResourceLocation type = PacketUtil.getTrueType(packet);
+    public static synchronized boolean takeOver(Packet<?> packet, NetworkManager connection) {
+        String type = PacketAggregationPacket.resolvePacketType(packet);
+        if (type == null || NotEnoughBandwidthLegacyConfig.skipType(type)) {
+            return false;
+        }
         ArrayList<AggregatedEncodePacket> packets = PACKET_BUFFER.get(connection);
         if (packets == null) {
             packets = new ArrayList<AggregatedEncodePacket>();
             PACKET_BUFFER.put(connection, packets);
         }
-        packets.add(new AggregatedEncodePacket(packet, type, getOutboundDirection(connection)));
+        if (packets.isEmpty()) {
+            BATCH_START_NANOS.put(connection, System.nanoTime());
+        } else if (isBatchExpired(connection)) {
+            flushInternal(connection, packets);
+            packets = PACKET_BUFFER.get(connection);
+            if (packets == null) {
+                packets = new ArrayList<AggregatedEncodePacket>();
+                PACKET_BUFFER.put(connection, packets);
+            }
+            if (packets.isEmpty()) {
+                BATCH_START_NANOS.put(connection, System.nanoTime());
+            }
+        }
+        packets.add(new AggregatedEncodePacket(packet, type, connection.getDirection()));
+        return true;
     }
 
     public static synchronized void flushConnection(NetworkManager connection) {
-        cleanupDisconnected();
+        removeDisconnectedConnections();
         flushInternal(connection, PACKET_BUFFER.get(connection));
     }
 
+    public static synchronized void clearConnection(@Nullable NetworkManager connection) {
+        if (connection == null) {
+            return;
+        }
+        ArrayList<AggregatedEncodePacket> packets = PACKET_BUFFER.remove(connection);
+        BATCH_START_NANOS.remove(connection);
+        releaseBufferedPackets(packets);
+    }
+
     private static synchronized void flush() {
-        cleanupDisconnected();
+        removeDisconnectedConnections();
         for (Map.Entry<NetworkManager, ArrayList<AggregatedEncodePacket>> entry : PACKET_BUFFER.entrySet()) {
             flushInternal(entry.getKey(), entry.getValue());
         }
     }
 
-    private static void cleanupDisconnected() {
-        PACKET_BUFFER.entrySet().removeIf(entry -> entry.getKey() == null || !entry.getKey().isChannelOpen());
+    private static synchronized void flushInternal(NetworkManager connection, @Nullable ArrayList<AggregatedEncodePacket> packets) {
+        ArrayList<AggregatedEncodePacket> sendPackets = null;
+        try {
+            if (packets == null || packets.isEmpty()) {
+                return;
+            }
+            Channel channel = connection.channel();
+            if (channel == null || !connection.isChannelOpen()) {
+                releaseBufferedPackets(packets);
+                return;
+            }
+            sendPackets = new ArrayList<AggregatedEncodePacket>(packets);
+            final ArrayList<AggregatedEncodePacket> packetsToSend = sendPackets;
+            runInternalSend(new Runnable() {
+                @Override
+                public void run() {
+                    flushBatch(connection, packetsToSend);
+                    Channel current = connection.channel();
+                    if (current != null) {
+                        current.flush();
+                    }
+                }
+            });
+            packets.clear();
+            BATCH_START_NANOS.remove(connection);
+        } catch (Exception e) {
+            if (packets != null) {
+                releaseBufferedPackets(packets);
+            }
+            throw new RuntimeException("[NEB] Failed to flush packets", e);
+        } finally {
+            if (sendPackets != null) {
+                for (AggregatedEncodePacket packet : sendPackets) {
+                    packet.release();
+                }
+            }
+        }
     }
 
-    private static synchronized void flushInternal(NetworkManager connection, @Nullable ArrayList<AggregatedEncodePacket> packets) {
+    private static void removeDisconnectedConnections() {
+        PACKET_BUFFER.entrySet().removeIf(entry -> {
+            NetworkManager manager = entry.getKey();
+            if (manager == null || !manager.isChannelOpen()) {
+                releaseBufferedPackets(entry.getValue());
+                BATCH_START_NANOS.remove(manager);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private static boolean isBatchExpired(NetworkManager connection) {
+        ArrayList<AggregatedEncodePacket> packets = PACKET_BUFFER.get(connection);
+        if (packets == null || packets.isEmpty()) {
+            BATCH_START_NANOS.remove(connection);
+            return false;
+        }
+        Long batchStart = BATCH_START_NANOS.get(connection);
+        if (batchStart == null) {
+            BATCH_START_NANOS.put(connection, System.nanoTime());
+            return false;
+        }
+        return System.nanoTime() - batchStart.longValue() >= AggregationFlushHelper.getMaxBatchWaitNanos();
+    }
+
+    private static void releaseAllBufferedPackets() {
+        for (ArrayList<AggregatedEncodePacket> packets : PACKET_BUFFER.values()) {
+            releaseBufferedPackets(packets);
+        }
+    }
+
+    private static void releaseBufferedPackets(@Nullable ArrayList<AggregatedEncodePacket> packets) {
         if (packets == null || packets.isEmpty()) {
             return;
         }
-        if (connection == null || connection.channel() == null || !connection.isChannelOpen()) {
+        for (AggregatedEncodePacket packet : packets) {
+            packet.release();
+        }
+        packets.clear();
+    }
+
+    private static void flushBatch(NetworkManager connection, ArrayList<AggregatedEncodePacket> packets) {
+        if (packets == null || packets.isEmpty()) {
             return;
         }
+        int maxPacketSize = getEffectiveTransportPayloadLimit(packets);
+        int estimatedSize = PacketAggregationPacket.estimatePayloadSize(packets);
+        if (estimatedSize > maxPacketSize) {
+            splitOrPassthrough(connection, packets, maxPacketSize);
+            return;
+        }
+        Packet<?> transport = PacketAggregationPacket.createTransportPacket(connection, packets);
         try {
-            ArrayList<AggregatedEncodePacket> sendPackets = new ArrayList<AggregatedEncodePacket>(packets);
-            packets.clear();
-            if (getOutboundDirection(connection) == EnumPacketDirection.SERVERBOUND) {
-                sendServerboundBatches(connection, sendPackets);
+            connection.sendPacket(transport);
+        } catch (IllegalArgumentException e) {
+            if (!isPayloadTooLarge(e)) {
+                throw e;
+            }
+            splitOrPassthrough(connection, packets, maxPacketSize);
+        }
+    }
+
+    private static int getEffectiveTransportPayloadLimit(ArrayList<AggregatedEncodePacket> packets) {
+        int configuredLimit = NotEnoughBandwidthLegacyConfig.get().getMaxPacketSize();
+        if (packets.isEmpty()) {
+            return configuredLimit;
+        }
+        Packet<?> firstPacket = packets.get(0).getPacket();
+        int vanillaLimit = firstPacket instanceof SPacketCustomPayload ? CLIENTBOUND_CUSTOM_PAYLOAD_LIMIT : SERVERBOUND_CUSTOM_PAYLOAD_LIMIT;
+        return Math.min(configuredLimit, vanillaLimit);
+    }
+
+    private static void splitOrPassthrough(NetworkManager connection, ArrayList<AggregatedEncodePacket> packets, int maxPacketSize) {
+        if (packets.size() <= 1) {
+            AggregatedEncodePacket single = packets.isEmpty() ? null : packets.get(0);
+            if (single != null) {
+                single.sendPassthrough(connection);
+            }
+            return;
+        }
+        ArrayList<AggregatedEncodePacket> current = new ArrayList<AggregatedEncodePacket>();
+        int currentSize = 0;
+        for (AggregatedEncodePacket packet : packets) {
+            int packetSize = Math.max(1, packet.getEncodedSizeEstimate());
+            if (!current.isEmpty() && currentSize + packetSize > maxPacketSize) {
+                flushBatch(connection, new ArrayList<AggregatedEncodePacket>(current));
+                current.clear();
+                currentSize = 0;
+            }
+            current.add(packet);
+            currentSize += packetSize;
+        }
+        if (!current.isEmpty()) {
+            if (current.size() == packets.size()) {
+                int mid = packets.size() / 2;
+                flushBatch(connection, new ArrayList<AggregatedEncodePacket>(packets.subList(0, mid)));
+                flushBatch(connection, new ArrayList<AggregatedEncodePacket>(packets.subList(mid, packets.size())));
                 return;
             }
-            PacketAggregationPacket aggregationPacket = new PacketAggregationPacket(sendPackets, connection);
-            connection.sendPacket(DefaultChannelPipelineHelper.toVanillaAggregatedPacket(connection, aggregationPacket));
-            if (connection.channel() != null) {
-                connection.channel().flush();
-            }
-        } catch (Exception e) {
-            NotEnoughBandwidthLegacy.LOGGER.error("[NEB] Failed to flush aggregated packets", e);
+            flushBatch(connection, current);
         }
     }
 
-    private static EnumPacketDirection getOutboundDirection(NetworkManager connection) {
-        return connection.getDirection() == EnumPacketDirection.CLIENTBOUND
-                ? EnumPacketDirection.SERVERBOUND
-                : EnumPacketDirection.CLIENTBOUND;
+    private static boolean isPayloadTooLarge(IllegalArgumentException e) {
+        String message = e.getMessage();
+        return message != null && message.contains("Payload may not be larger than");
     }
 
-    private static void sendServerboundBatches(NetworkManager connection, ArrayList<AggregatedEncodePacket> sendPackets) {
-        ArrayList<AggregatedEncodePacket> batch = new ArrayList<AggregatedEncodePacket>();
-        for (AggregatedEncodePacket packet : sendPackets) {
-            batch.add(packet);
-            if (estimateServerboundBatchSize(batch, connection) > SERVERBOUND_CUSTOM_PAYLOAD_LIMIT) {
-                batch.remove(batch.size() - 1);
-                if (!batch.isEmpty()) {
-                    sendBatch(connection, batch);
-                    batch = new ArrayList<AggregatedEncodePacket>();
-                }
-                batch.add(packet);
-            }
-        }
-        if (!batch.isEmpty()) {
-            sendBatch(connection, batch);
-        }
-    }
-
-    private static int estimateServerboundBatchSize(ArrayList<AggregatedEncodePacket> batch, NetworkManager connection) {
-        PacketBuffer test = new PacketBuffer(Unpooled.buffer());
+    private static void runInternalSend(Runnable action) {
+        INTERNAL_SEND.set(Boolean.TRUE);
         try {
-            new PacketAggregationPacket(new ArrayList<AggregatedEncodePacket>(batch), connection).encode(test);
-            return test.readableBytes();
+            action.run();
         } finally {
-            test.release();
-        }
-    }
-
-    private static void sendBatch(NetworkManager connection, ArrayList<AggregatedEncodePacket> batch) {
-        PacketAggregationPacket aggregationPacket = new PacketAggregationPacket(new ArrayList<AggregatedEncodePacket>(batch), connection);
-        Packet<?> wrapper = DefaultChannelPipelineHelper.toVanillaAggregatedPacket(connection, aggregationPacket);
-        PacketBuffer payload = LegacyCustomPayloadAccessor.getBufferData(wrapper);
-        if (payload != null && payload.readableBytes() > SERVERBOUND_CUSTOM_PAYLOAD_LIMIT) {
-            NotEnoughBandwidthLegacy.LOGGER.warn("[NEB] Skip oversized serverbound aggregation batch: {} bytes", payload.readableBytes());
-            for (AggregatedEncodePacket packet : batch) {
-                connection.sendPacket(packet.getPacket());
-            }
-            return;
-        }
-        connection.sendPacket(wrapper);
-        if (connection.channel() != null) {
-            connection.channel().flush();
+            INTERNAL_SEND.remove();
         }
     }
 }

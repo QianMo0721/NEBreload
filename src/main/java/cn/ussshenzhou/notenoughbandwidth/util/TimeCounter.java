@@ -1,37 +1,52 @@
 package cn.ussshenzhou.notenoughbandwidth.util;
 
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * @author USS_Shenzhou
- */
 public class TimeCounter {
-    private final Long2IntOpenHashMap container = new Long2IntOpenHashMap();
-    private final int windowsSizeMs;
+    private static final long WINDOW_NANOS = 1_000_000_000L;
+    private static final int SLOT_COUNT = 20;
+    private static final long SLOT_NANOS = WINDOW_NANOS / SLOT_COUNT;
 
-    public TimeCounter(int windowsSizeMs) {
-        this.windowsSizeMs = windowsSizeMs;
-    }
+    private final AtomicLong[] values = new AtomicLong[SLOT_COUNT];
+    private final AtomicLong[] ticks = new AtomicLong[SLOT_COUNT];
 
     public TimeCounter() {
-        this(2000);
-    }
-
-    private synchronized void update() {
-        final long now = System.currentTimeMillis();
-        container.keySet().removeIf(then -> now - then > windowsSizeMs);
-    }
-
-    public synchronized void put(int value) {
-        update();
-        container.put(System.currentTimeMillis(), value);
-    }
-
-    public synchronized double averageIn1s() {
-        int sum = 0;
-        for (int value : container.values()) {
-            sum += value;
+        for (int i = 0; i < SLOT_COUNT; i++) {
+            values[i] = new AtomicLong();
+            ticks[i] = new AtomicLong(Long.MIN_VALUE);
         }
-        return sum / (double) windowsSizeMs * 1000.0D;
+    }
+
+    public void put(int size) {
+        long now = System.nanoTime();
+        long tick = now / SLOT_NANOS;
+        int slot = (int) (tick % SLOT_COUNT);
+        AtomicLong tickRef = ticks[slot];
+        long previous = tickRef.get();
+        if (previous != tick) {
+            if (tickRef.compareAndSet(previous, tick)) {
+                values[slot].set(size);
+                return;
+            }
+            previous = tickRef.get();
+            if (previous != tick) {
+                values[slot].set(size);
+                tickRef.set(tick);
+                return;
+            }
+        }
+        values[slot].addAndGet(size);
+    }
+
+    public double averageIn1s() {
+        long nowTick = System.nanoTime() / SLOT_NANOS;
+        long sum = 0L;
+        for (int i = 0; i < SLOT_COUNT; i++) {
+            long slotTick = ticks[i].get();
+            if (nowTick - slotTick < SLOT_COUNT) {
+                sum += values[i].get();
+            }
+        }
+        return sum;
     }
 }

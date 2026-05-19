@@ -1,137 +1,128 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
-import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
-import cn.ussshenzhou.notenoughbandwidth.util.LegacyCustomPayloadAccessor;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import net.minecraft.network.EnumConnectionState;
 import net.minecraft.network.EnumPacketDirection;
+import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
 import net.minecraft.network.PacketBuffer;
 import net.minecraft.network.play.client.CPacketCustomPayload;
 import net.minecraft.network.play.server.SPacketCustomPayload;
-import net.minecraft.util.ResourceLocation;
 
-import javax.annotation.Nullable;
+import java.io.IOException;
 
-/**
- * @author USS_Shenzhou
- */
-@SuppressWarnings({"rawtypes", "unchecked"})
 public class AggregatedEncodePacket {
     private final Packet<?> packet;
-    @Nullable
-    private final ResourceLocation type;
+    private final String type;
+    private final PacketBuffer payloadData;
+    private final boolean customPayload;
     private final int vanillaPacketId;
 
-    public AggregatedEncodePacket(Packet<?> packet, @Nullable ResourceLocation type, EnumPacketDirection direction) {
+    public AggregatedEncodePacket(Packet<?> packet, String type, EnumPacketDirection direction) {
         this.packet = packet;
-        if (packet instanceof CPacketCustomPayload || packet instanceof SPacketCustomPayload) {
-            this.type = type;
-            this.vanillaPacketId = -1;
-        } else {
-            this.type = null;
-            try {
-                Integer packetId = EnumConnectionState.PLAY.getPacketId(direction, packet);
-                this.vanillaPacketId = packetId == null ? -1 : packetId.intValue();
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to resolve vanilla packet id", e);
-            }
-        }
-    }
-
-    public boolean isVanillaPacket() {
-        return vanillaPacketId >= 0;
-    }
-
-    public int getVanillaPacketId() {
-        return vanillaPacketId;
-    }
-
-    @Nullable
-    public ResourceLocation getType() {
-        return type;
-    }
-
-    public void encode(ByteBuf buf) {
-        try {
-            if (packet instanceof CPacketCustomPayload) {
-                writeCustomPayloadBody(buf, LegacyCustomPayloadAccessor.getBufferData(packet));
-                return;
-            }
-            if (packet instanceof SPacketCustomPayload) {
-                writeCustomPayloadBody(buf, LegacyCustomPayloadAccessor.getBufferData(packet));
-                return;
-            }
-            ((Packet) packet).writePacketData(new PacketBuffer(buf));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to encode aggregated packet", e);
-        }
+        this.type = type;
+        this.customPayload = packet instanceof SPacketCustomPayload || packet instanceof CPacketCustomPayload;
+        this.payloadData = captureCustomPayloadData(packet);
+        this.vanillaPacketId = resolveVanillaPacketId(packet, direction);
     }
 
     public Packet<?> getPacket() {
         return packet;
     }
 
-    private void writeCustomPayloadBody(ByteBuf out, PacketBuffer payload) {
-        if (payload == null) {
+    public String getType() {
+        return type;
+    }
+
+    public boolean isCustomPayload() {
+        return customPayload;
+    }
+
+    public boolean isVanillaPacket() {
+        return !customPayload && vanillaPacketId >= 0;
+    }
+
+    public int getVanillaPacketId() {
+        return vanillaPacketId;
+    }
+
+    public void encode(ByteBuf target) throws IOException {
+        PacketBuffer output = new PacketBuffer(target);
+        if (payloadData != null) {
+            output.writeBytes(payloadData, payloadData.readerIndex(), payloadData.readableBytes());
             return;
         }
-        int bodyStart = findPayloadBodyStart(payload);
-        int bodyLength = payload.writerIndex() - bodyStart;
-        if (bodyLength < 0) {
-            bodyStart = payload.readerIndex();
-            bodyLength = payload.readableBytes();
-        }
-        out.writeBytes(payload, bodyStart, bodyLength);
+        packet.writePacketData(output);
     }
 
-    private int findPayloadBodyStart(PacketBuffer payload) {
-        if (payload == null) {
-            return 0;
+    public int getEncodedSizeEstimate() {
+        int bodySize = getPayloadBodySizeEstimate();
+        int headerSize = 1 + PacketBuffer.getVarIntSize(bodySize);
+        if (isVanillaPacket()) {
+            return headerSize + PacketBuffer.getVarIntSize(vanillaPacketId) + bodySize;
         }
-        if (type == null) {
-            return payload.readerIndex();
-        }
-        Integer indexedHeaderEnd = tryConsumeIndexedHeader(payload);
-        if (indexedHeaderEnd != null) {
-            return indexedHeaderEnd.intValue();
-        }
-        Integer vanillaHeaderEnd = tryConsumeVanillaHeader(payload);
-        if (vanillaHeaderEnd != null) {
-            return vanillaHeaderEnd.intValue();
-        }
-        return payload.readerIndex();
+        int typeSize = PacketBuffer.getVarIntSize(type.length()) + type.length() * 4;
+        return headerSize + typeSize + bodySize;
     }
 
-    @Nullable
-    private Integer tryConsumeIndexedHeader(PacketBuffer payload) {
-        PacketBuffer probe = new PacketBuffer(payload.retainedDuplicate());
+    private int getPayloadBodySizeEstimate() {
+        if (payloadData != null) {
+            return payloadData.readableBytes();
+        }
+        PacketBuffer probe = new PacketBuffer(Unpooled.buffer());
         try {
-            ResourceLocation decoded = CustomPacketPrefixHelper.getType(probe);
-            if (type.equals(decoded)) {
-                return Integer.valueOf(probe.readerIndex());
-            }
-            return null;
-        } catch (Exception ignored) {
-            return null;
+            packet.writePacketData(probe);
+            return probe.readableBytes();
+        } catch (IOException e) {
+            throw new RuntimeException("[NEB] Failed to estimate packet size", e);
         } finally {
             probe.release();
         }
     }
 
-    @Nullable
-    private Integer tryConsumeVanillaHeader(PacketBuffer payload) {
-        PacketBuffer probe = new PacketBuffer(payload.retainedDuplicate());
-        try {
-            ResourceLocation decoded = probe.readResourceLocation();
-            if (type.equals(decoded)) {
-                return Integer.valueOf(probe.readerIndex());
+    public void sendPassthrough(NetworkManager connection) {
+        connection.sendPacket(packet);
+    }
+
+    public void release() {
+        if (payloadData != null && payloadData.refCnt() > 0) {
+            payloadData.release();
+        }
+    }
+
+    private static PacketBuffer captureCustomPayloadData(Packet<?> packet) {
+        if (packet instanceof SPacketCustomPayload) {
+            PacketBuffer data = ((SPacketCustomPayload) packet).getBufferData();
+            if (data == null) {
+                return null;
             }
-            return null;
+            PacketBuffer copy = new PacketBuffer(Unpooled.buffer(data.readableBytes()));
+            copy.writeBytes(data, data.readerIndex(), data.readableBytes());
+            return copy;
+        }
+        if (packet instanceof CPacketCustomPayload) {
+            PacketBuffer data = ((CPacketCustomPayload) packet).getBufferData();
+            if (data == null) {
+                return null;
+            }
+            PacketBuffer copy = new PacketBuffer(Unpooled.buffer(data.readableBytes()));
+            copy.writeBytes(data, data.readerIndex(), data.readableBytes());
+            return copy;
+        }
+        return null;
+    }
+
+    private static int resolveVanillaPacketId(Packet<?> packet, EnumPacketDirection direction) {
+        if (packet instanceof SPacketCustomPayload || packet instanceof CPacketCustomPayload) {
+            return -1;
+        }
+        try {
+            EnumConnectionState play = EnumConnectionState.PLAY;
+            Integer packetId = play.getPacketId(direction, packet);
+            return packetId == null ? -1 : packetId.intValue();
         } catch (Exception ignored) {
-            return null;
-        } finally {
-            probe.release();
+            return -1;
         }
     }
 }

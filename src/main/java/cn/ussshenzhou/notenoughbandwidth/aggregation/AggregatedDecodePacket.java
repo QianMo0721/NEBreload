@@ -1,72 +1,73 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
-import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.EnumConnectionState;
 import net.minecraft.network.EnumPacketDirection;
 import net.minecraft.network.INetHandler;
+import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
 import net.minecraft.network.PacketBuffer;
-import net.minecraft.network.play.INetHandlerPlayServer;
 import net.minecraft.network.play.client.CPacketCustomPayload;
 import net.minecraft.network.play.server.SPacketCustomPayload;
-import net.minecraft.util.ResourceLocation;
-import cn.ussshenzhou.notenoughbandwidth.util.LegacyCustomPayloadAccessor;
 
-import javax.annotation.Nullable;
-
-/**
- * @author USS_Shenzhou
- */
-@SuppressWarnings({"rawtypes", "unchecked"})
 public class AggregatedDecodePacket {
-    @Nullable
-    private final ResourceLocation type;
     private final int vanillaPacketId;
-    private final ByteBuf data;
+    private final String type;
+    private final PacketBuffer data;
 
-    public AggregatedDecodePacket(ResourceLocation type, ByteBuf data) {
-        this.type = type;
-        this.vanillaPacketId = -1;
-        this.data = data;
-    }
-
-    public AggregatedDecodePacket(int vanillaPacketId, ByteBuf data) {
-        this.type = null;
+    public AggregatedDecodePacket(int vanillaPacketId, String type, PacketBuffer data) {
         this.vanillaPacketId = vanillaPacketId;
+        this.type = type;
         this.data = data;
     }
 
-    public void handle(INetHandler listener) {
-        EnumPacketDirection direction = listener instanceof INetHandlerPlayServer
-                ? EnumPacketDirection.SERVERBOUND
-                : EnumPacketDirection.CLIENTBOUND;
-        Packet<?> packet = decode(direction);
+    public PacketBuffer getData() {
+        return data;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public void replay(NetworkManager connection) {
+        Packet packet = createPacket(connection);
         if (packet != null) {
-            ((Packet) packet).processPacket(listener);
+            INetHandler handler = connection.getNetHandler();
+            if (handler != null) {
+                packet.processPacket(handler);
+            }
         }
     }
 
-    public Packet<?> decode(EnumPacketDirection direction) {
-        Packet<?> packet = createVanillaPacket(direction);
+    private Packet<?> createPacket(NetworkManager connection) {
+        Packet<?> packet = createVanillaPacket(connection);
         if (packet != null) {
             return packet;
         }
-        return createCustomPayloadPacket(direction);
+        return createCustomPayloadPacket(connection.getDirection());
     }
 
-    private Packet<?> createVanillaPacket(EnumPacketDirection direction) {
+    private Packet<?> createVanillaPacket(NetworkManager connection) {
         if (vanillaPacketId < 0) {
             return null;
         }
         try {
-            Packet<?> packet = EnumConnectionState.PLAY.getPacket(direction, vanillaPacketId);
-            if (packet == null) {
+            EnumConnectionState state = connection.channel().attr(NetworkManager.PROTOCOL_ATTRIBUTE_KEY).get();
+            if (state == null) {
                 return null;
             }
-            packet.readPacketData(new PacketBuffer(data.copy()));
-            return packet;
-        } catch (Exception e) {
+            Packet<?> created = state.getPacket(connection.getDirection(), vanillaPacketId);
+            if (created == null) {
+                return null;
+            }
+            PacketBuffer read = new PacketBuffer(data.retainedDuplicate());
+            try {
+                created.readPacketData(read);
+                if (read.readableBytes() > 0) {
+                    return null;
+                }
+                return created;
+            } finally {
+                read.release();
+            }
+        } catch (Exception ignored) {
             return null;
         }
     }
@@ -75,15 +76,17 @@ public class AggregatedDecodePacket {
         if (type == null) {
             return null;
         }
-        PacketBuffer payload = new PacketBuffer(Unpooled.buffer(data.readableBytes()));
-        payload.writeBytes(data.copy());
+        PacketBuffer copy = new PacketBuffer(Unpooled.buffer(data.readableBytes()));
+        copy.writeBytes(data, data.readerIndex(), data.readableBytes());
         if (direction == EnumPacketDirection.CLIENTBOUND) {
-            return LegacyCustomPayloadAccessor.createSPacket(type.toString(), payload);
+            return new SPacketCustomPayload(type, copy);
         }
-        return LegacyCustomPayloadAccessor.createCPacket(type.toString(), payload);
+        return new CPacketCustomPayload(type, copy);
     }
 
-    public ByteBuf getData() {
-        return data;
+    public void release() {
+        if (data != null && data.refCnt() > 0) {
+            data.release();
+        }
     }
 }

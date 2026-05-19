@@ -4,14 +4,11 @@ import cn.ussshenzhou.notenoughbandwidth.util.TimeCounter;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * @author USS_Shenzhou
- */
 public class SimpleStatData {
-    private final AtomicLong inboundBytesBaked = new AtomicLong(0);
-    private final AtomicLong inboundBytesRaw = new AtomicLong(0);
-    private final AtomicLong outboundBytesBaked = new AtomicLong(0);
-    private final AtomicLong outboundBytesRaw = new AtomicLong(0);
+    private final AtomicLong inboundBytesBaked = new AtomicLong();
+    private final AtomicLong inboundBytesRaw = new AtomicLong();
+    private final AtomicLong outboundBytesBaked = new AtomicLong();
+    private final AtomicLong outboundBytesRaw = new AtomicLong();
     private final TimeCounter inboundSpeedBaked = new TimeCounter();
     private final TimeCounter inboundSpeedRaw = new TimeCounter();
     private final TimeCounter outboundSpeedBaked = new TimeCounter();

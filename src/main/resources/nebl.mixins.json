@@ -2,21 +2,15 @@
   "required": true,
   "minVersion": "0.8",
   "package": "cn.ussshenzhou.notenoughbandwidth.mixin",
-  "plugin": "cn.ussshenzhou.notenoughbandwidth.mixin.NebMixinConfigPlugin",
   "refmap": "nebl.refmap.json",
   "compatibilityLevel": "JAVA_8",
   "mixins": [
-    "ClientPayloadMixin",
     "ConnectionMixin",
-    "NetworkDispatcherMixin",
-    "PacketEncoderMixin",
     "PacketDecoderMixin",
-    "PlayerListMixin",
-    "PlayerChunkMapMixin",
-    "ServerPayloadMixin"
+    "PacketEncoderMixin"
   ],
   "client": [],
   "injectors": {
-    "defaultRequire": 1
+    "defaultRequire": 0
   }
 }

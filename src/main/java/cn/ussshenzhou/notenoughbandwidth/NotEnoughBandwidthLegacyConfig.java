@@ -5,124 +5,98 @@ import cn.ussshenzhou.notenoughbandwidth.config.ConfigHelper;
 import cn.ussshenzhou.notenoughbandwidth.config.TConfig;
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
-import net.minecraft.util.math.MathHelper;
 
 import java.util.HashSet;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-/**
- * @author USS_Shenzhou
- */
 public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     @SerializedName("说明-文件")
-    public String commentFile = "NEB 配置文件。为兼容旧版本，程序读取时同时支持旧英文键名；重新保存后会输出为中文键名。";
+    public String commentFile = "NEB 配置文件。该 1.12.2 版本仅保留聚合、压缩、配置与统计页面功能。";
 
     @SerializedName("说明-兼容模式")
-    public String commentCompatibleMode = "兼容模式开启后，会额外跳过黑名单中的数据包聚合，适合在出现进服异常、回弹、丢包表现时排查兼容性问题。";
+    public String commentCompatibleMode = "兼容模式开启后，会额外跳过黑名单中的数据包聚合。建议在代理、联机模组较多，或出现时序敏感问题时开启。";
 
     @SerializedName(value = "兼容模式", alternate = {"compatibleMode"})
     public boolean compatibleMode = true;
 
     @SerializedName("说明-兼容模式黑名单")
-    public String commentBlackList = "仅在兼容模式开启时生效。列表内容为需要强制跳过聚合的数据包类型标识。";
+    public String commentBlackList = "仅在兼容模式开启时生效。列表中的 channel 会先触发 flush，再直接发送，不参与聚合。";
 
     @SerializedName(value = "兼容模式黑名单", alternate = {"blackList"})
     public HashSet<String> blackList = new HashSet<String>() {{
-//        add("minecraft:command_suggestion");
-//        add("minecraft:command_suggestions");
-//        add("minecraft:commands");
-//        add("minecraft:chat_command");
-//        add("minecraft:chat_command_signed");
-//        add("minecraft:player_info_update");
-//        add("minecraft:player_info_remove");
+        add("minecraft:chat");
+        add("minecraft:resource_pack");
+        add("minecraft:respawn");
+        add("minecraft:game_event");
+        add("minecraft:set_time");
+        add("minecraft:player_position");
+        add("minecraft:player_abilities");
+        add("minecraft:set_health");
+        add("minecraft:set_experience");
+        add("minecraft:update_mob_effect");
+        add("minecraft:remove_mob_effect");
+        add("minecraft:set_chunk_cache_radius");
+        add("MC|Brand");
+        add("REGISTER");
+        add("UNREGISTER");
+        add("FML|HS");
+        add("FML|MP");
+        add("FML");
+        add("FORGE|HS");
+        add("FORGE|MP");
+        add("FORGE");
+        add("forge:split");
     }};
 
     @SerializedName("说明-调试日志")
-    public String commentDebugLog = "是否输出更详细的调试日志。仅在排查问题时建议开启，平时开启会明显刷屏。";
+    public String commentDebugLog = "是否输出更详细的调试日志。仅在排查问题时建议开启。";
 
     @SerializedName(value = "调试日志", alternate = {"debugLog"})
     public boolean debugLog = false;
 
     @SerializedName("说明-上下文等级")
-    public String commentContextLevel = "数据包上下文压缩等级，程序内部会自动限制在 21 到 25 之间。数值越高，可能压缩更激进，但兼容性风险也更高。";
+    public String commentContextLevel = "数据包上下文压缩等级，程序内部会自动限制在 21 到 25 之间。";
 
     @SerializedName(value = "上下文等级", alternate = {"contextLevel"})
     public int contextLevel = 23;
 
     @SerializedName("说明-zstd压缩等级")
-    public String commentZstdCompressionLevel = "zstd 算法压缩等级。数值越高通常压缩率越高、CPU 开销也越大。程序内部会自动限制在 -5 到 22 之间。";
+    public String commentZstdCompressionLevel = "zstd 算法压缩等级。程序内部会自动限制在 -5 到 22 之间。";
 
     @SerializedName(value = "zstd压缩等级", alternate = {"zstdCompressionLevel", "compressionLevel"})
     public int zstdCompressionLevel = 3;
 
-    /**
-     * 延迟区块缓存开关。默认开启，以保持与原项目一致的“扩展视距 +
-     * 区块缓存”能力；如需排查兼容性，可手动关闭。
-     */
+    @SerializedName("说明-不复用Zstd上下文的玩家")
+    public String commentPlayersDoNotUseContext = "仅在服务端生效。指定的玩家 UUID 连接不会复用 Zstd 上下文。";
 
-    @SerializedName("说明-延迟区块缓存")
-    public String commentEnableDelayedChunkCaching = "延迟区块缓存总开关。开启后会启用扩展视距与区块缓存联动逻辑；关闭后将整体退回原版行为。";
+    @SerializedName(value = "不复用Zstd上下文的玩家", alternate = {"playersDoNotUseContext"})
+    public HashSet<String> playersDoNotUseContext = new HashSet<String>() {{
+        add("00000000-0000-0000-0000-000000000000");
+    }};
 
-    @SerializedName(value = "启用延迟区块缓存", alternate = {"enableDelayedChunkCaching"})
-    public boolean enableDelayedChunkCaching = true;
+    @SerializedName("说明-最大单包大小")
+    public String commentMaxPacketSize = "单个聚合包允许的最大大小。支持 B/KB/MB 写法，程序内部限制在 2MB 到 64MB 之间。";
 
-    @SerializedName("说明-区块缓存上限")
-    public String commentDccSizeLimit = "单个玩家最多允许保留在延迟区块缓存中的区块数量。超过后会优先淘汰最早进入缓存的区块。";
-
-    @SerializedName(value = "区块缓存上限", alternate = {"dccSizeLimit"})
-    public int dccSizeLimit = 60;
-
-    @SerializedName("说明-区块缓存距离")
-    public String commentDccDistance = "玩家离开主视野后，仍允许继续缓存的棋盘距离（按区块计）。数值越大，缓存保留范围越大。";
-
-    @SerializedName(value = "区块缓存距离", alternate = {"dccDistance"})
-    public int dccDistance = 5;
-
-    @SerializedName("说明-区块缓存超时秒数")
-    public String commentDccTimeout = "区块离开主视野后，最多还能在缓存中保留的秒数。超时后会被正式卸载。";
-
-    @SerializedName(value = "区块缓存超时秒数", alternate = {"dccTimeout"})
-    public int dccTimeout = 60;
+    @SerializedName(value = "最大单包大小", alternate = {"maxPacketSize"})
+    public String maxPacketSize = "4MB";
 
     @Expose(serialize = false, deserialize = false)
+    private transient int maxPacketSizeByte = -1;
+
     public static final HashSet<String> COMMON_BLOCK_LIST = new HashSet<String>() {{
-        add("minecraft:finish_configuration");
-        add(PacketAggregationPacket.TYPE.toString());
-        add("minecraft:login");
-        // NEB transport channel itself must never be re-aggregated,
-        // otherwise PacketAggregationPacket is wrapped into nebl:main and
-        // intercepted again by ConnectionMixin, causing packets to loop in
-        // the aggregation buffer and never actually reach the remote side.
-        add(ModConstants.MOD_ID + ":main");
-        // Connection-control and synchronization-sensitive vanilla packets – skip aggregation
+        add(PacketAggregationPacket.CHANNEL_NAME);
+        add(ModConstants.MOD_ID + ":stat_query");
+        add(ModConstants.MOD_ID + ":stat_resp");
         add("minecraft:disconnect");
         add("minecraft:keep_alive");
         add("minecraft:ping");
         add("minecraft:pong");
+        add("minecraft:login");
         add("minecraft:register");
         add("minecraft:unregister");
-        add("minecraft:resource_pack");
-        add("minecraft:client_information");
-        add("minecraft:update_enabled_features");
-        // Forge play channel 承载实体生成与容器打开等框架级 payload，格式由 Forge
-        // 自己解释，不能再叠加 NEB 的 transparent custom-payload 压缩，否则会在
-        // 对端网络层先于 Minecraft 逻辑解析时读到 NEBZSTD1 魔数。
-        add("fml:play");
-        // Chunk cache control packets remain timing-sensitive in the current
-        // Forge 1.20.1 port, but the bulk chunk payload packets need to stay
-        // aggregatable, otherwise compression ratio collapses far below the
-        // original mod because most of the bandwidth is no longer eligible.
-        add("minecraft:set_chunk_cache_center");
-        add("minecraft:set_chunk_cache_radius");
-        // 按移植前项目实现，这些移动/同步包默认也应参与聚合；
-        // Forge internal channel packets – skip aggregation
-        add("forge:tier_sorting");
-        add("forge:registry_data");
-        add("forge:spawn_type");
-        add("forge:register");
-        add("forge:unregister");
-        // FTB Quests 任务书与队伍同步链路对自定义 payload 的标识和顺序非常敏感，
-        // 必须始终直通，不能依赖兼容模式黑名单，否则已有配置文件会让这些排除项失效。
         add("ftbquests:sync_quests");
         add("ftbquests:sync_team_data");
         add("ftbquests:update_task_progress");
@@ -157,45 +131,114 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("ftbquests:clear_display_cache");
         add("ftbquests:reorder_item_response");
         add("ftbquests:clear_repeat_cooldown");
-        add("minecraft:custom_payload");
     }};
 
     public static NotEnoughBandwidthLegacyConfig get() {
-        return ConfigHelper.getConfigRead(NotEnoughBandwidthLegacyConfig.class);
-    }
-
-    public static boolean skipType(String type) {
-        NotEnoughBandwidthLegacyConfig cfg = get();
-        if (type.startsWith("ftbquests:") || type.startsWith("ftbteams:") || type.startsWith("ftblibrary:")) {
-            return true;
-        }
-        return COMMON_BLOCK_LIST.contains(type) || (cfg.compatibleMode && cfg.blackList.contains(type));
-    }
-
-    public int getDccSizeLimitSafe() {
-        return Math.max(0, dccSizeLimit);
-    }
-
-    public int getDccDistanceSafe() {
-        return Math.max(0, dccDistance);
-    }
-
-    public int getDccTimeoutSafeSeconds() {
-        return Math.max(0, dccTimeout);
-    }
-
-    public boolean isDelayedChunkCachingUsable() {
-        return enableDelayedChunkCaching
-                && getDccSizeLimitSafe() > 0
-                && getDccDistanceSafe() > 0
-                && getDccTimeoutSafeSeconds() > 0;
+        return ConfigHelper.getConfig();
     }
 
     public int getContextLevel() {
-        return MathHelper.clamp(contextLevel, 21, 25);
+        return clamp(contextLevel, 21, 25);
     }
 
     public int getZstdCompressionLevel() {
-        return MathHelper.clamp(zstdCompressionLevel, -5, 22);
+        return clamp(zstdCompressionLevel, -5, 22);
+    }
+
+    public int getMaxPacketSize() {
+        if (maxPacketSizeByte < 0) {
+            int parsed = parseByteSize(maxPacketSize);
+            int min = parseByteSize("2MB");
+            int max = parseByteSize("64MB");
+            maxPacketSizeByte = clamp(parsed, min, max);
+        }
+        return maxPacketSizeByte;
+    }
+
+    public boolean shouldUseZstdContextForPlayer(String playerUuid) {
+        return playerUuid == null || !playersDoNotUseContext.contains(playerUuid);
+    }
+
+    public static boolean skipType(String type) {
+        if (type == null || type.isEmpty()) {
+            return true;
+        }
+        String normalized = normalizeType(type);
+        if (normalized.startsWith("ftbquests:") || normalized.startsWith("ftbteams:") || normalized.startsWith("ftblibrary:")) {
+            return true;
+        }
+        if (normalized.startsWith("voicechat:")) {
+            return true;
+        }
+        if (normalized.startsWith("l2screentracker:")) {
+            return true;
+        }
+        NotEnoughBandwidthLegacyConfig cfg = get();
+        return COMMON_BLOCK_LIST.contains(normalized) || (cfg.compatibleMode && cfg.blackList.contains(normalized));
+    }
+
+    public static String normalizeType(String type) {
+        if (type == null) {
+            return "";
+        }
+        String lowered = type.toLowerCase(Locale.ROOT);
+        if ("mc|brand".equals(lowered)) {
+            return "MC|Brand";
+        }
+        if ("register".equals(lowered)) {
+            return "REGISTER";
+        }
+        if ("unregister".equals(lowered)) {
+            return "UNREGISTER";
+        }
+        if ("fml|hs".equals(lowered)) {
+            return "FML|HS";
+        }
+        if ("fml|mp".equals(lowered)) {
+            return "FML|MP";
+        }
+        if ("fml".equals(lowered)) {
+            return "FML";
+        }
+        if ("forge|hs".equals(lowered)) {
+            return "FORGE|HS";
+        }
+        if ("forge|mp".equals(lowered)) {
+            return "FORGE|MP";
+        }
+        if ("forge".equals(lowered)) {
+            return "FORGE";
+        }
+        return lowered;
+    }
+
+    private static int parseByteSize(String text) {
+        if (text == null) {
+            return 4 * 1024 * 1024;
+        }
+        Matcher matcher = Pattern.compile("^([\\d.]+)\\s*(B|KB|MB)?$", Pattern.CASE_INSENSITIVE).matcher(text.trim());
+        if (!matcher.matches()) {
+            return 4 * 1024 * 1024;
+        }
+        double value = Double.parseDouble(matcher.group(1));
+        String unit = matcher.group(2);
+        if (unit == null) {
+            return (int) value;
+        }
+        String normalized = unit.toUpperCase(Locale.ROOT);
+        if ("B".equals(normalized)) {
+            return (int) value;
+        }
+        if ("KB".equals(normalized)) {
+            return (int) (value * 1024.0D);
+        }
+        if ("MB".equals(normalized)) {
+            return (int) (value * 1024.0D * 1024.0D);
+        }
+        return 4 * 1024 * 1024;
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

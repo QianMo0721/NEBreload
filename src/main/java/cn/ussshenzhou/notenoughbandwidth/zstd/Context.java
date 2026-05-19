@@ -1,42 +1,62 @@
 package cn.ussshenzhou.notenoughbandwidth.zstd;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
+import com.github.luben.zstd.EndDirective;
+import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdCompressCtx;
 import com.github.luben.zstd.ZstdDecompressCtx;
 
 import java.io.Closeable;
 import java.nio.ByteBuffer;
+import java.util.Locale;
 
-/**
- * @author USS_Shenzhou
- */
 public class Context implements Closeable {
+    private static final boolean GRAALVM = isGraalVm();
+
     private final ZstdCompressCtx compressCtx;
     private final ZstdDecompressCtx decompressCtx;
+    private final boolean useContext;
 
     public Context() {
-        compressCtx = new ZstdCompressCtx();
-        compressCtx.setLevel(NotEnoughBandwidthLegacyConfig.get().getZstdCompressionLevel());
-        compressCtx.setContentSize(false);
-        compressCtx.setMagicless(true);
-        compressCtx.setWindowLog(NotEnoughBandwidthLegacyConfig.get().getContextLevel());
-        decompressCtx = new ZstdDecompressCtx();
-        decompressCtx.setMagicless(true);
+        this(true);
     }
 
-    public ByteBuffer compress(ByteBuffer src) {
-        return compressCtx.compress(ensureDirect(src));
+    public Context(boolean useContext) {
+        this.compressCtx = new ZstdCompressCtx();
+        this.compressCtx.setLevel(NotEnoughBandwidthLegacyConfig.get().getZstdCompressionLevel());
+        this.compressCtx.setContentSize(false);
+        this.compressCtx.setMagicless(true);
+        this.compressCtx.setWindowLog(NotEnoughBandwidthLegacyConfig.get().getContextLevel());
+        this.decompressCtx = new ZstdDecompressCtx();
+        this.decompressCtx.setMagicless(true);
+        this.useContext = useContext;
     }
 
-    public ByteBuffer decompress(ByteBuffer src, int originalSize) {
-        ByteBuffer dst = ByteBuffer.allocateDirect(originalSize);
-        decompressCtx.decompress(dst, ensureDirect(src));
-        dst.flip();
-        return dst;
+    public ByteBuffer compress(ByteBuffer raw) {
+        ByteBuffer directRaw = ensureDirect(raw);
+        if (useContext && !GRAALVM) {
+            int bound = (int) Zstd.compressBound(directRaw.remaining());
+            ByteBuffer compressed = ByteBuffer.allocateDirect(bound);
+            compressCtx.compressDirectByteBufferStream(compressed, directRaw, EndDirective.FLUSH);
+            compressed.flip();
+            return compressed;
+        }
+        return compressCtx.compress(directRaw);
     }
 
-    private static ByteBuffer ensureDirect(ByteBuffer src) {
-        ByteBuffer slice = src.slice();
+    public ByteBuffer decompress(ByteBuffer compressed, int originalSize) {
+        ByteBuffer directCompressed = ensureDirect(compressed);
+        if (!useContext || GRAALVM) {
+            return decompressCtx.decompress(directCompressed, originalSize);
+        }
+        ByteBuffer decompressed = ByteBuffer.allocateDirect(originalSize);
+        decompressCtx.decompressDirectByteBufferStream(decompressed, directCompressed);
+        decompressed.flip();
+        return decompressed;
+    }
+
+    private static ByteBuffer ensureDirect(ByteBuffer source) {
+        ByteBuffer slice = source.slice();
         if (slice.isDirect()) {
             return slice;
         }
@@ -44,6 +64,14 @@ public class Context implements Closeable {
         direct.put(slice);
         direct.flip();
         return direct;
+    }
+
+    private static boolean isGraalVm() {
+        String vmName = System.getProperty("java.vm.name", "");
+        String vmVendor = System.getProperty("java.vm.vendor", "");
+        String runtimeName = System.getProperty("java.runtime.name", "");
+        String all = (vmName + " " + vmVendor + " " + runtimeName).toLowerCase(Locale.ROOT);
+        return all.contains("graalvm");
     }
 
     @Override
