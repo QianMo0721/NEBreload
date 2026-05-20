@@ -2,7 +2,9 @@ package cn.ussshenzhou.notenoughbandwidth;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
 import cn.ussshenzhou.notenoughbandwidth.config.ConfigHelper;
+import cn.ussshenzhou.notenoughbandwidth.stat.ModKey;
 import cn.ussshenzhou.notenoughbandwidth.util.ModNetworkRegistry;
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
@@ -17,6 +19,7 @@ public class NotEnoughBandwidthLegacy {
     public void preInit(FMLPreInitializationEvent event) {
         ConfigHelper.load(event.getSuggestedConfigurationFile());
         ModNetworkRegistry.init();
+        MinecraftForge.EVENT_BUS.register(new ModKey());
     }
 
     @Mod.EventHandler

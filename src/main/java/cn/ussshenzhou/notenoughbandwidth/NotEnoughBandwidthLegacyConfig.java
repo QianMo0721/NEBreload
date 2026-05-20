@@ -88,6 +88,8 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     public static final HashSet<String> COMMON_BLOCK_LIST = new HashSet<String>() {{
         add(PacketAggregationPacket.CHANNEL_NAME);
+        add(ModConstants.MOD_ID + ":payload");
+        add(ModConstants.MOD_ID + ":transport_setup");
         add(ModConstants.MOD_ID + ":stat_query");
         add(ModConstants.MOD_ID + ":stat_resp");
         add("minecraft:disconnect");

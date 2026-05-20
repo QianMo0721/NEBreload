@@ -7,11 +7,11 @@ import net.minecraft.network.INetHandler;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
 import net.minecraft.network.PacketBuffer;
-import net.minecraft.network.play.INetHandlerPlayClient;
 import net.minecraft.network.play.INetHandlerPlayServer;
 import net.minecraft.util.text.ITextComponent;
 
 import javax.annotation.Nullable;
+import java.lang.reflect.Field;
 
 public class PayloadContext {
     @Nullable
@@ -49,7 +49,7 @@ public class PayloadContext {
             return;
         }
         if (listener instanceof INetHandlerPlayServer) {
-            EntityPlayer currentPlayer = player();
+            EntityPlayer currentPlayer = resolveServerPlayer();
             if (currentPlayer instanceof EntityPlayerMP && ((EntityPlayerMP) currentPlayer).getServerWorld() != null) {
                 ((EntityPlayerMP) currentPlayer).getServerWorld().addScheduledTask(runnable);
                 return;
@@ -67,17 +67,30 @@ public class PayloadContext {
 
     @Nullable
     public EntityPlayer player() {
-        if (listener instanceof INetHandlerPlayServer) {
-            EntityPlayer currentPlayer = player();
-            if (currentPlayer instanceof EntityPlayerMP) {
-                return (EntityPlayerMP) currentPlayer;
-            }
+        EntityPlayer serverPlayer = resolveServerPlayer();
+        if (serverPlayer != null) {
+            return serverPlayer;
         }
         if (clientbound) {
             Minecraft minecraft = Minecraft.getMinecraft();
             return minecraft == null ? null : minecraft.player;
         }
         return null;
+    }
+
+    @Nullable
+    private EntityPlayer resolveServerPlayer() {
+        if (!(listener instanceof INetHandlerPlayServer)) {
+            return null;
+        }
+        try {
+            Field field = listener.getClass().getDeclaredField("player");
+            field.setAccessible(true);
+            Object value = field.get(listener);
+            return value instanceof EntityPlayer ? (EntityPlayer) value : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     public void disconnect(ITextComponent reason) {

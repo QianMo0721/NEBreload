@@ -43,19 +43,24 @@ public final class PacketAggregationPacket {
         return wrapped;
     }
 
-    public static Packet<?> createTransportPacket(NetworkManager connection, ArrayList<AggregatedEncodePacket> packets) {
+    public static PacketBuffer createTransportPayload(NetworkManager connection, ArrayList<AggregatedEncodePacket> packets) {
         PacketBuffer payload = new PacketBuffer(Unpooled.buffer());
         try {
             encodePayload(connection, packets, payload);
-            Packet<?> first = packets.get(0).getPacket();
-            if (first instanceof SPacketCustomPayload) {
-                return new SPacketCustomPayload(CHANNEL_NAME, payload);
-            }
-            return new CPacketCustomPayload(CHANNEL_NAME, payload);
+            return payload;
         } catch (Exception e) {
             payload.release();
             throw new RuntimeException("[NEB] Failed to encode aggregation payload", e);
         }
+    }
+
+    public static Packet<?> createTransportPacket(NetworkManager connection, ArrayList<AggregatedEncodePacket> packets) {
+        PacketBuffer payload = createTransportPayload(connection, packets);
+        Packet<?> first = packets.get(0).getPacket();
+        if (first instanceof SPacketCustomPayload) {
+            return new SPacketCustomPayload(CHANNEL_NAME, payload);
+        }
+        return new CPacketCustomPayload(CHANNEL_NAME, payload);
     }
 
     private static void encodePayload(NetworkManager connection, ArrayList<AggregatedEncodePacket> packets, PacketBuffer out) throws IOException {

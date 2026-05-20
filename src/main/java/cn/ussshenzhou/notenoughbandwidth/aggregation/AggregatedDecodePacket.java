@@ -1,5 +1,6 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadContext;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.EnumConnectionState;
 import net.minecraft.network.EnumPacketDirection;
@@ -34,6 +35,17 @@ public class AggregatedDecodePacket {
                 packet.processPacket(handler);
             }
         }
+    }
+
+    public void replay(PayloadContext context) {
+        if (context == null || context.connection() == null) {
+            return;
+        }
+        Packet<?> packet = createPacket(context.connection());
+        if (packet == null) {
+            return;
+        }
+        context.handlePacket(packet);
     }
 
     private Packet<?> createPacket(NetworkManager connection) {

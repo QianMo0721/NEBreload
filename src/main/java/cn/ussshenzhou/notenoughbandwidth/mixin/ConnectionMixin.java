@@ -2,6 +2,10 @@ package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
+import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.ChannelAttributes;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NebTransportSetupPayload;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
 import net.minecraft.network.EnumConnectionState;
 import net.minecraft.network.NetworkManager;
@@ -32,6 +36,9 @@ public abstract class ConnectionMixin {
             AggregationManager.flushConnection(connection);
             return;
         }
+        if (!ensureTransportSetup(connection, packet)) {
+            return;
+        }
         if (AggregationManager.takeOver(packet, connection)) {
             ci.cancel();
         }
@@ -41,6 +48,31 @@ public abstract class ConnectionMixin {
     private void nebClearConnectionScopedStateBeforeClose(ITextComponent message, CallbackInfo ci) {
         NetworkManager connection = (NetworkManager) (Object) this;
         AggregationManager.clearConnection(connection);
+        ChannelAttributes.clearTransportSetupRequested(connection);
+        ChannelAttributes.setPayloadSetup(connection, null);
+    }
+
+    private static boolean ensureTransportSetup(NetworkManager connection, Packet<?> packet) {
+        if (PacketAggregationPacket.isTransport(packet) || isFrameworkPayload(packet)) {
+            return false;
+        }
+        if (ChannelAttributes.hasPayload(connection, PacketAggregationPacket.CHANNEL_NAME)) {
+            return true;
+        }
+        if (!ChannelAttributes.isTransportSetupRequested(connection)) {
+            ChannelAttributes.markTransportSetupRequested(connection);
+            PayloadRegistry.send(connection, isClientbound(packet), NebTransportSetupPayload.REQUEST);
+        }
+        return false;
+    }
+
+    private static boolean isFrameworkPayload(Packet<?> packet) {
+        String type = PacketUtil.getTrueType(packet);
+        return type != null && type.startsWith(cn.ussshenzhou.notenoughbandwidth.ModConstants.MOD_ID + ":payload");
+    }
+
+    private static boolean isClientbound(Packet<?> packet) {
+        return packet.getClass().getName().contains("server.");
     }
 
     private static boolean shouldSkipAggregation(Packet<?> packet) {

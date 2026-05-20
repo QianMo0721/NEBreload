@@ -1,10 +1,12 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
 import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PacketAggregationPayload;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.netty.channel.Channel;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
+import net.minecraft.network.PacketBuffer;
 import net.minecraft.network.play.client.CPacketCustomPayload;
 import net.minecraft.network.play.server.SPacketCustomPayload;
 
@@ -203,15 +205,26 @@ public final class AggregationManager {
             splitOrPassthrough(connection, packets, maxPacketSize);
             return;
         }
-        Packet<?> transport = PacketAggregationPacket.createTransportPacket(connection, packets);
+        PacketBuffer payload = PacketAggregationPacket.createTransportPayload(connection, packets);
         try {
-            connection.sendPacket(transport);
+            boolean clientbound = isClientboundBatch(packets);
+            PacketAggregationPayload.send(connection, clientbound, payload);
         } catch (IllegalArgumentException e) {
             if (!isPayloadTooLarge(e)) {
                 throw e;
             }
             splitOrPassthrough(connection, packets, maxPacketSize);
+        } finally {
+            payload.release();
         }
+    }
+
+    private static boolean isClientboundBatch(ArrayList<AggregatedEncodePacket> packets) {
+        if (packets.isEmpty()) {
+            return false;
+        }
+        Packet<?> firstPacket = packets.get(0).getPacket();
+        return firstPacket instanceof SPacketCustomPayload || firstPacket.getClass().getName().contains("server.");
     }
 
     private static int getEffectiveTransportPayloadLimit(ArrayList<AggregatedEncodePacket> packets) {
