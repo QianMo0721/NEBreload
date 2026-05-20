@@ -2,16 +2,12 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - master
-    tags:
-      - 'v*'
   pull_request:
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build on Java 8
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,13 +27,23 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Remove local java.home override
-        run: sed -i '/^org\.gradle\.java\.home=/d' ./gradle.properties
+        run: |
+          if [ -f ./gradle.properties ]; then
+            sed -i '/^org\.gradle\.java\.home=/d' ./gradle.properties
+          fi
 
-      - name: Compile
-        run: ./gradlew --no-daemon compileJava
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v3
 
-      - name: Build
-        run: ./gradlew --no-daemon build
+      - name: Compile sources
+        uses: gradle/gradle-build-action@v3
+        with:
+          arguments: compileJava --no-daemon
+
+      - name: Build jar
+        uses: gradle/gradle-build-action@v3
+        with:
+          arguments: build --no-daemon
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
