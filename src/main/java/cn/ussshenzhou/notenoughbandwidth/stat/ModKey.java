@@ -6,12 +6,13 @@ import net.minecraftforge.client.event.GuiScreenEvent;
 import net.minecraftforge.client.settings.KeyConflictContext;
 import net.minecraftforge.client.settings.KeyModifier;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
-import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.InputEvent;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 import org.lwjgl.input.Keyboard;
 
-@Mod.EventBusSubscriber(modid = "notenoughbandwidth")
+@SideOnly(Side.CLIENT)
 public class ModKey {
     public static final KeyBinding STAT = new KeyBinding(
             "key.neb.stat",
@@ -20,12 +21,20 @@ public class ModKey {
             Keyboard.KEY_N,
             "key.categories.notenoughbandwidth.stat"
     );
+    public static final KeyBinding DEBUG = new KeyBinding(
+            "key.neb.debug",
+            KeyConflictContext.UNIVERSAL,
+            KeyModifier.ALT,
+            Keyboard.KEY_P,
+            "key.categories.notenoughbandwidth.stat"
+    );
 
     private static boolean initialized;
 
     private static void ensureRegistered() {
         if (!initialized) {
             ClientRegistry.registerKeyBinding(STAT);
+            ClientRegistry.registerKeyBinding(DEBUG);
             initialized = true;
         }
     }
@@ -35,6 +44,9 @@ public class ModKey {
         ensureRegistered();
         if (STAT.isPressed()) {
             Minecraft.getMinecraft().displayGuiScreen(new StatScreen());
+        }
+        if (DEBUG.isPressed()) {
+            Minecraft.getMinecraft().displayGuiScreen(new DebugStatScreen());
         }
     }
 

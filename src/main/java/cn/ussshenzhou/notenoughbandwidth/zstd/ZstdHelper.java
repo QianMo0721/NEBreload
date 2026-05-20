@@ -49,6 +49,11 @@ public final class ZstdHelper {
         return ZSTD_AVAILABLE;
     }
 
+    public static int debugContextCount() {
+        ZSTD_CONTEXT_CACHE.asMap().entrySet().removeIf(entry -> entry.getKey() == null || !entry.getKey().isChannelOpen());
+        return ZSTD_CONTEXT_CACHE.asMap().size();
+    }
+
     public static ByteBuf compress(NetworkManager connection, ByteBuf raw) {
         return Unpooled.wrappedBuffer(get(connection).compress(raw.nioBuffer()));
     }

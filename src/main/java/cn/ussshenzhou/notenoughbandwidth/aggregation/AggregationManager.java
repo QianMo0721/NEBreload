@@ -42,6 +42,30 @@ public final class AggregationManager {
         return initialized;
     }
 
+    public static synchronized DebugSnapshot debugSnapshot() {
+        removeDisconnectedConnections();
+        int connectionCount = PACKET_BUFFER.size();
+        int totalBufferedPackets = 0;
+        long totalEstimatedBytes = 0L;
+        int maxBufferedPacketsPerConnection = 0;
+        for (ArrayList<AggregatedEncodePacket> packets : PACKET_BUFFER.values()) {
+            if (packets == null) {
+                continue;
+            }
+            int size = packets.size();
+            totalBufferedPackets += size;
+            if (size > maxBufferedPacketsPerConnection) {
+                maxBufferedPacketsPerConnection = size;
+            }
+            for (AggregatedEncodePacket packet : packets) {
+                if (packet != null) {
+                    totalEstimatedBytes += Math.max(0, packet.getEncodedSizeEstimate());
+                }
+            }
+        }
+        return new DebugSnapshot(connectionCount, totalBufferedPackets, totalEstimatedBytes, maxBufferedPacketsPerConnection);
+    }
+
     public static boolean isInternalSend() {
         return INTERNAL_SEND.get();
     }
@@ -279,6 +303,35 @@ public final class AggregationManager {
             action.run();
         } finally {
             INTERNAL_SEND.remove();
+        }
+    }
+    public static final class DebugSnapshot {
+        private final int connectionCount;
+        private final int totalBufferedPackets;
+        private final long totalEstimatedBytes;
+        private final int maxBufferedPacketsPerConnection;
+
+        public DebugSnapshot(int connectionCount, int totalBufferedPackets, long totalEstimatedBytes, int maxBufferedPacketsPerConnection) {
+            this.connectionCount = connectionCount;
+            this.totalBufferedPackets = totalBufferedPackets;
+            this.totalEstimatedBytes = totalEstimatedBytes;
+            this.maxBufferedPacketsPerConnection = maxBufferedPacketsPerConnection;
+        }
+
+        public int connectionCount() {
+            return connectionCount;
+        }
+
+        public int totalBufferedPackets() {
+            return totalBufferedPackets;
+        }
+
+        public long totalEstimatedBytes() {
+            return totalEstimatedBytes;
+        }
+
+        public int maxBufferedPacketsPerConnection() {
+            return maxBufferedPacketsPerConnection;
         }
     }
 }

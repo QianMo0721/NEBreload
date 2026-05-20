@@ -13,20 +13,25 @@ import net.minecraft.network.play.server.SPacketCustomPayload;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 
 public final class PacketAggregationPacket {
     public static final String CHANNEL_NAME = ModConstants.MOD_ID + ":main";
+    private static final Field CLIENTBOUND_CHANNEL_FIELD = findField(SPacketCustomPayload.class, "channel", "field_149172_a");
+    private static final Field CLIENTBOUND_DATA_FIELD = findField(SPacketCustomPayload.class, "data", "field_149171_b");
+    private static final Field SERVERBOUND_CHANNEL_FIELD = findField(CPacketCustomPayload.class, "channel", "field_149561_a");
+    private static final Field SERVERBOUND_DATA_FIELD = findField(CPacketCustomPayload.class, "data", "field_149560_b");
 
     private PacketAggregationPacket() {
     }
 
     public static String resolvePacketType(Packet<?> packet) {
         if (packet instanceof SPacketCustomPayload) {
-            return ((SPacketCustomPayload) packet).getChannelName();
+            return getChannelName((SPacketCustomPayload) packet);
         }
         if (packet instanceof CPacketCustomPayload) {
-            return ((CPacketCustomPayload) packet).getChannelName();
+            return getChannelName((CPacketCustomPayload) packet);
         }
         return packet.getClass().getName();
     }
@@ -151,24 +156,65 @@ public final class PacketAggregationPacket {
 
     public static boolean isTransport(Packet<?> packet) {
         if (packet instanceof SPacketCustomPayload) {
-            return CHANNEL_NAME.equals(((SPacketCustomPayload) packet).getChannelName());
+            return CHANNEL_NAME.equals(getChannelName((SPacketCustomPayload) packet));
         }
         if (packet instanceof CPacketCustomPayload) {
-            return CHANNEL_NAME.equals(((CPacketCustomPayload) packet).getChannelName());
+            return CHANNEL_NAME.equals(getChannelName((CPacketCustomPayload) packet));
         }
         return false;
     }
 
     @Nullable
     public static PacketBuffer copyPayload(Packet<?> packet) {
+        PacketBuffer data = getPayloadData(packet);
+        return data == null ? null : new PacketBuffer(data.retainedDuplicate());
+    }
+
+    @Nullable
+    public static PacketBuffer getPayloadData(Packet<?> packet) {
         if (packet instanceof SPacketCustomPayload) {
-            PacketBuffer data = ((SPacketCustomPayload) packet).getBufferData();
-            return data == null ? null : new PacketBuffer(data.retainedDuplicate());
+            return getPayloadData((SPacketCustomPayload) packet);
         }
         if (packet instanceof CPacketCustomPayload) {
-            PacketBuffer data = ((CPacketCustomPayload) packet).getBufferData();
-            return data == null ? null : new PacketBuffer(data.retainedDuplicate());
+            return getPayloadData((CPacketCustomPayload) packet);
         }
         return null;
+    }
+
+    public static String getChannelName(SPacketCustomPayload packet) {
+        return getFieldValue(CLIENTBOUND_CHANNEL_FIELD, packet, String.class);
+    }
+
+    public static String getChannelName(CPacketCustomPayload packet) {
+        return getFieldValue(SERVERBOUND_CHANNEL_FIELD, packet, String.class);
+    }
+
+    public static PacketBuffer getPayloadData(SPacketCustomPayload packet) {
+        return getFieldValue(CLIENTBOUND_DATA_FIELD, packet, PacketBuffer.class);
+    }
+
+    public static PacketBuffer getPayloadData(CPacketCustomPayload packet) {
+        return getFieldValue(SERVERBOUND_DATA_FIELD, packet, PacketBuffer.class);
+    }
+
+    private static Field findField(Class<?> owner, String... names) {
+        for (String name : names) {
+            try {
+                Field field = owner.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (NoSuchFieldException ignored) {
+            }
+        }
+        throw new IllegalStateException("[NEB] Failed to resolve field on " + owner.getName());
+    }
+
+    private static <T> T getFieldValue(Field field, Object instance, Class<T> type) {
+        try {
+            Object value = field.get(instance);
+            return type.cast(value);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException("[NEB] Failed to access field " + field.getName(), e);
+        }
     }
 }
