@@ -1,0 +1,20 @@
+{
+  "mappings": {
+    "cn/ussshenzhou/notenoughbandwidth/mixin/ConnectionMixin": {},
+    "cn/ussshenzhou/notenoughbandwidth/mixin/PacketDecoderMixin": {},
+    "cn/ussshenzhou/notenoughbandwidth/mixin/PacketEncoderMixin": {},
+    "cn/ussshenzhou/notenoughbandwidth/mixin/ClientPacketListenerMixin": {
+      "handleCustomPayload": "Lnet/minecraft/client/network/NetHandlerPlayClient;handleCustomPayload(Lnet/minecraft/network/play/server/SPacketCustomPayload;)V"
+    }
+  },
+  "data": {
+    "searge": {
+      "cn/ussshenzhou/notenoughbandwidth/mixin/ConnectionMixin": {},
+      "cn/ussshenzhou/notenoughbandwidth/mixin/PacketDecoderMixin": {},
+      "cn/ussshenzhou/notenoughbandwidth/mixin/PacketEncoderMixin": {},
+      "cn/ussshenzhou/notenoughbandwidth/mixin/ClientPacketListenerMixin": {
+        "handleCustomPayload": "Lnet/minecraft/client/network/NetHandlerPlayClient;handleCustomPayload(Lnet/minecraft/network/play/server/SPacketCustomPayload;)V"
+      }
+    }
+  }
+}
