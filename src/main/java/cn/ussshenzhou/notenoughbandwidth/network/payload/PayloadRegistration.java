@@ -58,4 +58,12 @@ public class PayloadRegistration<T extends NebPayload> {
     public boolean matches(boolean inboundClientbound) {
         return inboundClientbound ? clientbound : serverbound;
     }
+
+    public boolean matches(boolean toClient, boolean toServer) {
+        return (!toClient || clientbound) && (!toServer || serverbound);
+    }
+
+    public boolean matchesFlow(boolean clientboundFlow) {
+        return clientboundFlow ? clientbound : serverbound;
+    }
 }

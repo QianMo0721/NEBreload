@@ -1,9 +1,10 @@
 package cn.ussshenzhou.notenoughbandwidth.network.payload;
 
-import net.minecraft.client.Minecraft;
+import cn.ussshenzhou.notenoughbandwidth.NotEnoughBandwidthLegacyConfig;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.network.INetHandler;
+import net.minecraft.network.NetHandlerPlayServer;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
 import net.minecraft.network.PacketBuffer;
@@ -11,7 +12,6 @@ import net.minecraft.network.play.INetHandlerPlayServer;
 import net.minecraft.util.text.ITextComponent;
 
 import javax.annotation.Nullable;
-import java.lang.reflect.Field;
 
 public class PayloadContext {
     @Nullable
@@ -56,11 +56,8 @@ public class PayloadContext {
             }
         }
         if (clientbound) {
-            Minecraft minecraft = Minecraft.getMinecraft();
-            if (minecraft != null) {
-                minecraft.addScheduledTask(runnable);
-                return;
-            }
+            ClientPayloadWork.enqueue(runnable);
+            return;
         }
         runnable.run();
     }
@@ -71,26 +68,19 @@ public class PayloadContext {
         if (serverPlayer != null) {
             return serverPlayer;
         }
-        if (clientbound) {
-            Minecraft minecraft = Minecraft.getMinecraft();
-            return minecraft == null ? null : minecraft.player;
-        }
-        return null;
+        return clientbound ? ClientPayloadWork.getClientPlayer() : null;
     }
 
     @Nullable
     private EntityPlayer resolveServerPlayer() {
-        if (!(listener instanceof INetHandlerPlayServer)) {
-            return null;
+        if (listener instanceof NetHandlerPlayServer) {
+            return ((NetHandlerPlayServer) listener).player;
         }
-        try {
-            Field field = listener.getClass().getDeclaredField("player");
-            field.setAccessible(true);
-            Object value = field.get(listener);
-            return value instanceof EntityPlayer ? (EntityPlayer) value : null;
-        } catch (Throwable ignored) {
-            return null;
-        }
+        return null;
+    }
+
+    public boolean shouldKeepOnNetworkThread(String payloadType) {
+        return clientbound && NotEnoughBandwidthLegacyConfig.shouldKeepCustomPayloadOnNetworkThread(payloadType);
     }
 
     public void disconnect(ITextComponent reason) {

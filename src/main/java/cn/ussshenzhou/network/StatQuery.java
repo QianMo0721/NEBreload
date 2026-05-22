@@ -2,11 +2,13 @@ package cn.ussshenzhou.network;
 
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.PacketDistributor;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadCodec;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadContext;
-import cn.ussshenzhou.notenoughbandwidth.network.payload.PacketDistributor;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.network.PacketBuffer;
+
+import static cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager.LOCAL;
 
 public class StatQuery implements NebPayload {
     public static final String TYPE = ModConstants.MOD_ID + ":stat_query";
@@ -35,17 +37,27 @@ public class StatQuery implements NebPayload {
         return new StatQuery();
     }
 
-    public void handle(EntityPlayerMP player) {
-        if (player == null || !player.canUseCommand(2, ModNetworkRegistry.PERMISSION_NODE)) {
-            return;
-        }
-        ModNetworkRegistry.deliverStatSnapshot(player);
-    }
-
     public static void handle(StatQuery payload, PayloadContext context) {
-        if (context.player() instanceof EntityPlayerMP) {
-            payload.handle((EntityPlayerMP) context.player());
-        }
+        context.enqueueWork(new Runnable() {
+            @Override
+            public void run() {
+                if (context.player() instanceof EntityPlayerMP) {
+                    EntityPlayerMP serverPlayer = (EntityPlayerMP) context.player();
+                    if (serverPlayer.canUseCommand(2, ModNetworkRegistry.PERMISSION_NODE)) {
+                        PacketDistributor.sendToPlayer(serverPlayer, new StatRespond(
+                                LOCAL.inboundBytesBaked().get(),
+                                LOCAL.inboundBytesRaw().get(),
+                                LOCAL.outboundBytesBaked().get(),
+                                LOCAL.outboundBytesRaw().get(),
+                                LOCAL.inboundSpeedBaked().averageIn1s(),
+                                LOCAL.inboundSpeedRaw().averageIn1s(),
+                                LOCAL.outboundSpeedBaked().averageIn1s(),
+                                LOCAL.outboundSpeedRaw().averageIn1s()
+                        ));
+                    }
+                }
+            }
+        });
     }
 
     public static void sendToServer() {

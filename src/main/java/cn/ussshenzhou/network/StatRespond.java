@@ -72,18 +72,19 @@ public class StatRespond implements NebPayload {
         );
     }
 
-    public void handle() {
-        SimpleStatManager.inboundBytesBakedServer = inboundBytesBaked;
-        SimpleStatManager.inboundBytesRawServer = inboundBytesRaw;
-        SimpleStatManager.outboundBytesBakedServer = outboundBytesBaked;
-        SimpleStatManager.outboundBytesRawServer = outboundBytesRaw;
-        SimpleStatManager.inboundSpeedBakedServer = inboundSpeedBaked;
-        SimpleStatManager.inboundSpeedRawServer = inboundSpeedRaw;
-        SimpleStatManager.outboundSpeedBakedServer = outboundSpeedBaked;
-        SimpleStatManager.outboundSpeedRawServer = outboundSpeedRaw;
-    }
-
-    public static void handle(StatRespond payload, PayloadContext context) {
-        payload.handle();
+    public static void handle(final StatRespond payload, PayloadContext context) {
+        context.enqueueWork(new Runnable() {
+            @Override
+            public void run() {
+                SimpleStatManager.inboundBytesBakedServer = payload.inboundBytesBaked;
+                SimpleStatManager.inboundBytesRawServer = payload.inboundBytesRaw;
+                SimpleStatManager.outboundBytesBakedServer = payload.outboundBytesBaked;
+                SimpleStatManager.outboundBytesRawServer = payload.outboundBytesRaw;
+                SimpleStatManager.inboundSpeedBakedServer = payload.inboundSpeedBaked;
+                SimpleStatManager.inboundSpeedRawServer = payload.inboundSpeedRaw;
+                SimpleStatManager.outboundSpeedBakedServer = payload.outboundSpeedBaked;
+                SimpleStatManager.outboundSpeedRawServer = payload.outboundSpeedRaw;
+            }
+        });
     }
 }

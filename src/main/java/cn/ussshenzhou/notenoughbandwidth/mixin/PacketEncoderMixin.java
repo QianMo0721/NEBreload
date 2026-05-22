@@ -1,6 +1,7 @@
 package cn.ussshenzhou.notenoughbandwidth.mixin;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NebPayload;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import cn.ussshenzhou.notenoughbandwidth.util.EncodedTrafficStatHelper;
 import cn.ussshenzhou.notenoughbandwidth.util.PacketUtil;
@@ -25,6 +26,8 @@ public class PacketEncoderMixin {
         int rawSize;
         Object truePacket = PacketUtil.getTruePacket(packet);
         if (truePacket instanceof PacketBuffer) {
+            rawSize = 0;
+        } else if (truePacket instanceof NebPayload) {
             rawSize = 0;
         } else if (PacketAggregationPacket.isTransport(packet)) {
             rawSize = 0;

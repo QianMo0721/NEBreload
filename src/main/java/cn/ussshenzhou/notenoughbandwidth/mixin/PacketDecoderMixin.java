@@ -27,7 +27,7 @@ import java.util.List;
 @Mixin(NettyPacketDecoder.class)
 public class PacketDecoderMixin {
     @Unique
-    private static final String FRAMEWORK_CHANNEL = ModConstants.MOD_ID + ":payload";
+    private static final String FRAMEWORK_CHANNEL = ModConstants.PAYLOAD_CHANNEL;
 
     @Inject(method = "decode", at = @At("TAIL"))
     private void nebRecordInboundTraffic(ChannelHandlerContext ctx, ByteBuf input, List<Object> out, CallbackInfo ci) {
@@ -64,20 +64,20 @@ public class PacketDecoderMixin {
         NetworkManager connection = resolveConnection(ctx);
         INetHandler listener = connection == null ? null : connection.getNetHandler();
         if (packet instanceof SPacketCustomPayload) {
-            SPacketCustomPayload payloadPacket = (SPacketCustomPayload) packet;
-            PacketBuffer data = payloadPacket.getBufferData();
-            if (data == null || !FRAMEWORK_CHANNEL.equals(payloadPacket.getChannelName())) {
+            PacketBuffer data = PacketAggregationPacket.getPayloadData(packet);
+            String channel = PacketAggregationPacket.resolvePacketType(packet);
+            if (data == null || !FRAMEWORK_CHANNEL.equals(channel)) {
                 return false;
             }
-            return PayloadRegistry.handleIncomingCustomPayload(connection, listener, payloadPacket.getChannelName(), data, true);
+            return PayloadRegistry.handleIncomingCustomPayload(connection, listener, channel, data, true);
         }
         if (packet instanceof CPacketCustomPayload) {
-            CPacketCustomPayload payloadPacket = (CPacketCustomPayload) packet;
-            PacketBuffer data = payloadPacket.getBufferData();
-            if (data == null || !FRAMEWORK_CHANNEL.equals(payloadPacket.getChannelName())) {
+            PacketBuffer data = PacketAggregationPacket.getPayloadData(packet);
+            String channel = PacketAggregationPacket.resolvePacketType(packet);
+            if (data == null || !FRAMEWORK_CHANNEL.equals(channel)) {
                 return false;
             }
-            return PayloadRegistry.handleIncomingCustomPayload(connection, listener, payloadPacket.getChannelName(), data, false);
+            return PayloadRegistry.handleIncomingCustomPayload(connection, listener, channel, data, false);
         }
         return false;
     }

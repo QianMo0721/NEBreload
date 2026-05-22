@@ -14,13 +14,19 @@ import java.util.regex.Pattern;
 public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     @SerializedName("说明-文件")
-    public String commentFile = "NEB 配置文件。该 1.12.2 版本仅保留聚合、压缩、配置与统计页面功能。";
+    public String commentFile = "NEB 配置文件。该 1.12.2 版本保留聚合、压缩、注册协商与统计调试功能。";
 
     @SerializedName("说明-兼容模式")
     public String commentCompatibleMode = "兼容模式开启后，会额外跳过黑名单中的数据包聚合。建议在代理、联机模组较多，或出现时序敏感问题时开启。";
 
     @SerializedName(value = "兼容模式", alternate = {"compatibleMode"})
     public boolean compatibleMode = true;
+
+    @SerializedName("说明-Velocity代理兼容模式")
+    public String commentVelocityProxyCompatibleMode = "经过代理进入 Forge 子服时建议开启。开启后，兼容模式黑名单会在代理链路下始终生效，以减少命令补全、聊天、玩家列表等时序敏感包被聚合后引发的兼容性问题。";
+
+    @SerializedName(value = "Velocity代理兼容模式", alternate = {"velocityProxyCompatibleMode"})
+    public boolean velocityProxyCompatibleMode = false;
 
     @SerializedName("说明-兼容模式黑名单")
     public String commentBlackList = "仅在兼容模式开启时生效。列表中的 channel 会先触发 flush，再直接发送，不参与聚合。";
@@ -49,6 +55,14 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("FORGE|MP");
         add("FORGE");
         add("forge:split");
+    }};
+
+    @SerializedName("说明-保持网络线程分发的自定义包")
+    public String commentKeepCustomPayloadOnNetworkThread = "列表中的 custom payload 会保持在网络线程直接分发，不会先切回主线程。可填写完整标识或命名空间。适用于依赖原始网络线程上下文的联机模组。";
+
+    @SerializedName(value = "保持网络线程分发的自定义包", alternate = {"keepCustomPayloadOnNetworkThread"})
+    public HashSet<String> keepCustomPayloadOnNetworkThread = new HashSet<String>() {{
+        add("voicechat");
     }};
 
     @SerializedName("说明-调试日志")
@@ -88,7 +102,7 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
 
     public static final HashSet<String> COMMON_BLOCK_LIST = new HashSet<String>() {{
         add(PacketAggregationPacket.CHANNEL_NAME);
-        add(ModConstants.MOD_ID + ":payload");
+        add(ModConstants.PAYLOAD_CHANNEL);
         add(ModConstants.MOD_ID + ":transport_setup");
         add(ModConstants.MOD_ID + ":stat_query");
         add(ModConstants.MOD_ID + ":stat_resp");
@@ -99,6 +113,14 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
         add("minecraft:login");
         add("minecraft:register");
         add("minecraft:unregister");
+        add("minecraft:client_information");
+        add("FML|HS");
+        add("FML|MP");
+        add("FML");
+        add("FORGE|HS");
+        add("FORGE|MP");
+        add("FORGE");
+        add("forge:split");
         add("ftbquests:sync_quests");
         add("ftbquests:sync_team_data");
         add("ftbquests:update_task_progress");
@@ -176,7 +198,22 @@ public class NotEnoughBandwidthLegacyConfig implements TConfig {
             return true;
         }
         NotEnoughBandwidthLegacyConfig cfg = get();
-        return COMMON_BLOCK_LIST.contains(normalized) || (cfg.compatibleMode && cfg.blackList.contains(normalized));
+        boolean proxySensitiveBypass = cfg.velocityProxyCompatibleMode && cfg.blackList.contains(normalized);
+        return COMMON_BLOCK_LIST.contains(normalized) || proxySensitiveBypass || (cfg.compatibleMode && cfg.blackList.contains(normalized));
+    }
+
+    public static boolean shouldKeepCustomPayloadOnNetworkThread(String type) {
+        if (type == null || type.isEmpty()) {
+            return false;
+        }
+        String normalized = normalizeType(type);
+        int split = normalized.indexOf(':');
+        String namespace = split >= 0 ? normalized.substring(0, split) : normalized;
+        if ("voicechat".equals(namespace)) {
+            return true;
+        }
+        NotEnoughBandwidthLegacyConfig cfg = get();
+        return cfg.keepCustomPayloadOnNetworkThread.contains(normalized) || cfg.keepCustomPayloadOnNetworkThread.contains(namespace);
     }
 
     public static String normalizeType(String type) {

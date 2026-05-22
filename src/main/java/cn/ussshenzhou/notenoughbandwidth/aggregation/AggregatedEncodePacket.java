@@ -92,25 +92,13 @@ public class AggregatedEncodePacket {
     }
 
     private static PacketBuffer captureCustomPayloadData(Packet<?> packet) {
-        if (packet instanceof SPacketCustomPayload) {
-            PacketBuffer data = ((SPacketCustomPayload) packet).getBufferData();
-            if (data == null) {
-                return null;
-            }
-            PacketBuffer copy = new PacketBuffer(Unpooled.buffer(data.readableBytes()));
-            copy.writeBytes(data, data.readerIndex(), data.readableBytes());
-            return copy;
+        PacketBuffer data = PacketAggregationPacket.getPayloadData(packet);
+        if (data == null) {
+            return null;
         }
-        if (packet instanceof CPacketCustomPayload) {
-            PacketBuffer data = ((CPacketCustomPayload) packet).getBufferData();
-            if (data == null) {
-                return null;
-            }
-            PacketBuffer copy = new PacketBuffer(Unpooled.buffer(data.readableBytes()));
-            copy.writeBytes(data, data.readerIndex(), data.readableBytes());
-            return copy;
-        }
-        return null;
+        PacketBuffer copy = new PacketBuffer(Unpooled.buffer(data.readableBytes()));
+        copy.writeBytes(data, data.readerIndex(), data.readableBytes());
+        return copy;
     }
 
     private static int resolveVanillaPacketId(Packet<?> packet, EnumPacketDirection direction) {

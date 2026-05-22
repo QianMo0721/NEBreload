@@ -21,7 +21,7 @@ public class ClientPacketListenerMixin {
         if (connection == null) {
             return;
         }
-        String channel = PacketAggregationPacket.getChannelName(packet);
+        String channel = PacketAggregationPacket.resolvePacketType(packet);
         if (channel == null || !PayloadRegistry.contains(channel)) {
             return;
         }

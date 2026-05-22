@@ -1,10 +1,16 @@
 package cn.ussshenzhou.notenoughbandwidth.stat;
 
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.ClientPayloadBridge;
+import cn.ussshenzhou.notenoughbandwidth.network.payload.NetworkPayloadSetup;
 import cn.ussshenzhou.notenoughbandwidth.network.payload.PayloadRegistry;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.network.EnumConnectionState;
+import net.minecraft.network.NetworkManager;
+
+import java.util.Map;
 
 public class DebugStatScreen extends GuiScreen {
     private static final int TITLE_COLOR = 0xFFFFFF;
@@ -25,6 +31,9 @@ public class DebugStatScreen extends GuiScreen {
     private String pendingMaxPerConnection = "-";
     private String zstdContextCount = "-";
     private String payloadRegistrationCount = "-";
+    private String negotiatedPayloadCount = "-";
+    private String negotiatedPlayPayloadCount = "-";
+    private String transportChannelReady = "-";
     private String zstdAvailable = "-";
     private String clientPlayer = "-";
     private String worldSide = "-";
@@ -66,6 +75,12 @@ public class DebugStatScreen extends GuiScreen {
         payloadRegistrationCount = String.valueOf(PayloadRegistry.registrations().size());
         zstdAvailable = String.valueOf(ZstdHelper.isAvailable());
 
+        NetworkManager connection = ClientPayloadBridge.getClientNetworkManager();
+        NetworkPayloadSetup payloadSetup = connection == null ? null : cn.ussshenzhou.notenoughbandwidth.network.payload.ChannelAttributes.getPayloadSetup(connection);
+        negotiatedPayloadCount = payloadSetup == null ? "0" : String.valueOf(countAllChannels(payloadSetup));
+        negotiatedPlayPayloadCount = payloadSetup == null ? "0" : String.valueOf(payloadSetup.getChannels(EnumConnectionState.PLAY).size());
+        transportChannelReady = String.valueOf(payloadSetup != null && payloadSetup.hasChannel(cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket.CHANNEL_NAME));
+
         Minecraft minecraft = Minecraft.getMinecraft();
         clientPlayer = minecraft.player == null ? "-" : minecraft.player.getName();
         worldSide = minecraft.world == null ? "No World" : (minecraft.isSingleplayer() ? "Integrated Client" : "Remote Client");
@@ -100,10 +115,15 @@ public class DebugStatScreen extends GuiScreen {
         drawPair(x, y, "Max Buffered Packets/Conn", pendingMaxPerConnection, WARN_COLOR); y += line;
         drawPair(x, y, "Zstd Context Count", zstdContextCount, VALUE_COLOR); y += line;
         drawPair(x, y, "Payload Registrations", payloadRegistrationCount, VALUE_COLOR); y += line;
+        drawPair(x, y, "Negotiated Payloads", negotiatedPayloadCount, VALUE_COLOR); y += line;
+        drawPair(x, y, "Negotiated PLAY Payloads", negotiatedPlayPayloadCount, VALUE_COLOR); y += line;
+        drawPair(x, y, "Transport Ready", transportChannelReady, VALUE_COLOR); y += line;
         drawPair(x, y, "Zstd Available", zstdAvailable, VALUE_COLOR); y += line * 2;
 
         this.fontRenderer.drawString("Notes", x, y, TITLE_COLOR); y += line;
         this.fontRenderer.drawString("- Buffered stats come from the aggregation waiting queue.", x, y, LABEL_COLOR); y += line;
+        this.fontRenderer.drawString("- Negotiated payloads reflect the current connection setup snapshot.", x, y, LABEL_COLOR); y += line;
+        this.fontRenderer.drawString("- PLAY payloads are the effective channels used by runtime packet transport.", x, y, LABEL_COLOR); y += line;
         this.fontRenderer.drawString("- Zstd context count is the current cache entry count, not native bytes.", x, y, LABEL_COLOR); y += line;
         this.fontRenderer.drawString("- This page helps observe trends, not prove leak existence by itself.", x, y, LABEL_COLOR);
 
@@ -113,6 +133,14 @@ public class DebugStatScreen extends GuiScreen {
     private void drawPair(int x, int y, String label, String value, int valueColor) {
         this.fontRenderer.drawString(label + ":", x, y, LABEL_COLOR);
         this.fontRenderer.drawString(value, x + 150, y, valueColor);
+    }
+
+    private static int countAllChannels(NetworkPayloadSetup setup) {
+        int total = 0;
+        for (Map<String, cn.ussshenzhou.notenoughbandwidth.network.payload.NetworkChannel> value : setup.channels().values()) {
+            total += value.size();
+        }
+        return total;
     }
 
     private static String readableSize(long bytes) {

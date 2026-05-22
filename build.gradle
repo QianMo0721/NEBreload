@@ -49,6 +49,7 @@ dependencies {
     embed 'org.spongepowered:mixin:0.8.5'
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
     embed 'com.github.luben:zstd-jni:1.5.5-5'
+    implementation 'it.unimi.dsi:fastutil:8.5.12'
 }
 
 mixin {

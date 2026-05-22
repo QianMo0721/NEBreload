@@ -3,6 +3,7 @@ package cn.ussshenzhou.notenoughbandwidth.network.payload;
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.AggregationManager;
 import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
+import cn.ussshenzhou.notenoughbandwidth.indextype.NamespaceIndexManager;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.PacketBuffer;
 
@@ -42,18 +43,32 @@ public class NebTransportSetupPayload implements NebPayload {
         if (connection == null) {
             return;
         }
-        NetworkPayloadSetup setup = ChannelAttributes.getPayloadSetup(connection);
-        if (setup == null) {
-            setup = NetworkPayloadSetup.empty();
+        PayloadRegistration<?> transportRegistration = PayloadRegistry.getRegistration(PacketAggregationPacket.CHANNEL_NAME);
+        if (transportRegistration == null) {
+            return;
         }
-        setup.register(PacketAggregationPacket.CHANNEL_NAME, "1");
+        NetworkPayloadSetup existingSetup = ChannelAttributes.getPayloadSetup(connection);
+        NetworkPayloadSetup setup = existingSetup == null ? NetworkPayloadSetup.empty() : copyOf(existingSetup);
+        setup.register(transportRegistration);
         setup.register(TYPE, "1");
+        if (!setup.hasChannel(PacketAggregationPacket.CHANNEL_NAME)) {
+            return;
+        }
         ChannelAttributes.setPayloadSetup(connection, setup);
+        NamespaceIndexManager.initForConnection(connection, setup);
         if (!AggregationManager.isInitialized()) {
             AggregationManager.init();
         }
         if (!payload.ack()) {
             context.reply(ACK);
         }
+    }
+
+    private static NetworkPayloadSetup copyOf(NetworkPayloadSetup existingSetup) {
+        NetworkPayloadSetup setup = NetworkPayloadSetup.empty();
+        existingSetup.channels().forEach((protocol, channels) -> {
+            channels.forEach((id, channel) -> setup.register(protocol, id, channel.version()));
+        });
+        return setup;
     }
 }

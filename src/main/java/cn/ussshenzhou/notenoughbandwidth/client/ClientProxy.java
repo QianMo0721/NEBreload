@@ -10,6 +10,8 @@ import net.minecraftforge.fml.relauncher.SideOnly;
 public class ClientProxy extends CommonProxy {
     @Override
     public void preInit() {
+        ModKey.register();
         MinecraftForge.EVENT_BUS.register(new ModKey());
+        MinecraftForge.EVENT_BUS.register(new ClientLifecycleHandler());
     }
 }

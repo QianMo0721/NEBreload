@@ -1,7 +1,5 @@
 package cn.ussshenzhou.notenoughbandwidth.network.payload;
 
-import net.minecraft.network.PacketBuffer;
-
 public class MainThreadPayloadHandler<T extends NebPayload> implements PayloadHandler<T> {
     private final PayloadHandler<T> delegate;
 
@@ -11,6 +9,10 @@ public class MainThreadPayloadHandler<T extends NebPayload> implements PayloadHa
 
     @Override
     public void handle(final T payload, final PayloadContext context) {
+        if (payload != null && context != null && context.shouldKeepOnNetworkThread(payload.type())) {
+            delegate.handle(payload, context);
+            return;
+        }
         context.enqueueWork(new Runnable() {
             @Override
             public void run() {

@@ -1,6 +1,7 @@
 package cn.ussshenzhou.notenoughbandwidth.aggregation;
 
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
+import cn.ussshenzhou.notenoughbandwidth.indextype.CustomPacketPrefixHelper;
 import cn.ussshenzhou.notenoughbandwidth.stat.SimpleStatManager;
 import cn.ussshenzhou.notenoughbandwidth.zstd.ZstdHelper;
 import io.netty.buffer.ByteBuf;
@@ -13,15 +14,18 @@ import net.minecraft.network.play.server.SPacketCustomPayload;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 
 public final class PacketAggregationPacket {
-    public static final String CHANNEL_NAME = ModConstants.MOD_ID + ":main";
-    private static final Field CLIENTBOUND_CHANNEL_FIELD = findField(SPacketCustomPayload.class, "channel", "field_149172_a");
-    private static final Field CLIENTBOUND_DATA_FIELD = findField(SPacketCustomPayload.class, "data", "field_149171_b");
-    private static final Field SERVERBOUND_CHANNEL_FIELD = findField(CPacketCustomPayload.class, "channel", "field_149561_a");
-    private static final Field SERVERBOUND_DATA_FIELD = findField(CPacketCustomPayload.class, "data", "field_149560_b");
+    public static final String CHANNEL_NAME = ModConstants.TRANSPORT_CHANNEL;
+    private static volatile Field clientboundChannelField;
+    private static volatile Field clientboundDataField;
+    private static volatile Field serverboundChannelField;
+    private static volatile Field serverboundDataField;
+    private static volatile Constructor<SPacketCustomPayload> clientboundCustomPayloadCtor;
+    private static volatile Constructor<CPacketCustomPayload> serverboundCustomPayloadCtor;
 
     private PacketAggregationPacket() {
     }
@@ -50,12 +54,17 @@ public final class PacketAggregationPacket {
 
     public static PacketBuffer createTransportPayload(NetworkManager connection, ArrayList<AggregatedEncodePacket> packets) {
         PacketBuffer payload = new PacketBuffer(Unpooled.buffer());
+        boolean success = false;
         try {
             encodePayload(connection, packets, payload);
+            success = true;
             return payload;
         } catch (Exception e) {
-            payload.release();
             throw new RuntimeException("[NEB] Failed to encode aggregation payload", e);
+        } finally {
+            if (!success && payload.refCnt() > 0) {
+                payload.release();
+            }
         }
     }
 
@@ -63,16 +72,16 @@ public final class PacketAggregationPacket {
         PacketBuffer payload = createTransportPayload(connection, packets);
         Packet<?> first = packets.get(0).getPacket();
         if (first instanceof SPacketCustomPayload) {
-            return new SPacketCustomPayload(CHANNEL_NAME, payload);
+            return newClientboundPacket(CHANNEL_NAME, payload);
         }
-        return new CPacketCustomPayload(CHANNEL_NAME, payload);
+        return newServerboundPacket(CHANNEL_NAME, payload);
     }
 
     private static void encodePayload(NetworkManager connection, ArrayList<AggregatedEncodePacket> packets, PacketBuffer out) throws IOException {
         PacketBuffer rawBuffer = new PacketBuffer(Unpooled.buffer());
         try {
             for (AggregatedEncodePacket packet : packets) {
-                encodeSubPacket(rawBuffer, packet);
+                encodeSubPacket(connection, rawBuffer, packet);
             }
             int rawSize = rawBuffer.readableBytes();
             SimpleStatManager.outRaw(rawSize);
@@ -94,7 +103,7 @@ public final class PacketAggregationPacket {
         }
     }
 
-    private static void encodeSubPacket(PacketBuffer raw, AggregatedEncodePacket packet) throws IOException {
+    private static void encodeSubPacket(NetworkManager connection, PacketBuffer raw, AggregatedEncodePacket packet) throws IOException {
         PacketBuffer body = new PacketBuffer(Unpooled.buffer());
         try {
             packet.encode(body);
@@ -102,7 +111,7 @@ public final class PacketAggregationPacket {
             if (packet.isVanillaPacket()) {
                 raw.writeVarInt(packet.getVanillaPacketId());
             } else {
-                raw.writeString(packet.getType());
+                CustomPacketPrefixHelper.write(connection, packet.getType(), raw);
             }
             raw.writeVarInt(body.readableBytes());
             raw.writeBytes(body, body.readerIndex(), body.readableBytes());
@@ -127,6 +136,7 @@ public final class PacketAggregationPacket {
         }
 
         ArrayList<AggregatedDecodePacket> packets = new ArrayList<AggregatedDecodePacket>();
+        boolean success = false;
         try {
             int rawSize = raw.readableBytes();
             while (raw.readableBytes() > 0) {
@@ -136,7 +146,15 @@ public final class PacketAggregationPacket {
                 if (vanilla) {
                     vanillaPacketId = raw.readVarInt();
                 } else {
-                    type = raw.readString(256);
+                    CustomPacketPrefixHelper.DecodedTypeInfo info = CustomPacketPrefixHelper.readInfo(connection, raw);
+                    if (!info.valid()) {
+                        int invalidSize = raw.readVarInt();
+                        if (invalidSize >= 0 && invalidSize <= raw.readableBytes()) {
+                            raw.skipBytes(invalidSize);
+                        }
+                        break;
+                    }
+                    type = info.type();
                 }
                 int size = raw.readVarInt();
                 if (size < 0 || size > raw.readableBytes()) {
@@ -146,12 +164,21 @@ public final class PacketAggregationPacket {
                 packets.add(new AggregatedDecodePacket(vanillaPacketId, type, slice));
             }
             SimpleStatManager.inRaw(rawSize);
+            success = true;
+            return packets;
         } catch (Exception e) {
             throw new RuntimeException("[NEB] Failed to decode aggregation payload", e);
         } finally {
             raw.release();
+            if (!success) {
+                for (AggregatedDecodePacket packet : packets) {
+                    if (packet != null) {
+                        packet.release();
+                    }
+                }
+                packets.clear();
+            }
         }
-        return packets;
     }
 
     public static boolean isTransport(Packet<?> packet) {
@@ -167,7 +194,12 @@ public final class PacketAggregationPacket {
     @Nullable
     public static PacketBuffer copyPayload(Packet<?> packet) {
         PacketBuffer data = getPayloadData(packet);
-        return data == null ? null : new PacketBuffer(data.retainedDuplicate());
+        if (data == null) {
+            return null;
+        }
+        PacketBuffer copy = new PacketBuffer(Unpooled.buffer(data.readableBytes()));
+        copy.writeBytes(data, data.readerIndex(), data.readableBytes());
+        return copy;
     }
 
     @Nullable
@@ -182,31 +214,124 @@ public final class PacketAggregationPacket {
     }
 
     public static String getChannelName(SPacketCustomPayload packet) {
-        return getFieldValue(CLIENTBOUND_CHANNEL_FIELD, packet, String.class);
+        return getFieldValue(clientboundChannelField(), packet, String.class);
     }
 
     public static String getChannelName(CPacketCustomPayload packet) {
-        return getFieldValue(SERVERBOUND_CHANNEL_FIELD, packet, String.class);
+        return getFieldValue(serverboundChannelField(), packet, String.class);
     }
 
     public static PacketBuffer getPayloadData(SPacketCustomPayload packet) {
-        return getFieldValue(CLIENTBOUND_DATA_FIELD, packet, PacketBuffer.class);
+        return getFieldValue(clientboundDataField(), packet, PacketBuffer.class);
     }
 
     public static PacketBuffer getPayloadData(CPacketCustomPayload packet) {
-        return getFieldValue(SERVERBOUND_DATA_FIELD, packet, PacketBuffer.class);
+        return getFieldValue(serverboundDataField(), packet, PacketBuffer.class);
     }
 
-    private static Field findField(Class<?> owner, String... names) {
+    public static SPacketCustomPayload newClientboundPacket(String channel, PacketBuffer data) {
+        return newPacket(clientboundCustomPayloadCtor(), channel, data);
+    }
+
+    public static CPacketCustomPayload newServerboundPacket(String channel, PacketBuffer data) {
+        return newPacket(serverboundCustomPayloadCtor(), channel, data);
+    }
+
+    private static Field clientboundChannelField() {
+        Field field = clientboundChannelField;
+        if (field == null) {
+            field = findField(SPacketCustomPayload.class, String.class, 0, "channel", "field_149172_a", "a");
+            clientboundChannelField = field;
+        }
+        return field;
+    }
+
+    private static Field clientboundDataField() {
+        Field field = clientboundDataField;
+        if (field == null) {
+            field = findField(SPacketCustomPayload.class, PacketBuffer.class, 0, "data", "field_149171_b", "b");
+            clientboundDataField = field;
+        }
+        return field;
+    }
+
+    private static Field serverboundChannelField() {
+        Field field = serverboundChannelField;
+        if (field == null) {
+            field = findField(CPacketCustomPayload.class, String.class, 0, "channel", "field_149561_a", "a");
+            serverboundChannelField = field;
+        }
+        return field;
+    }
+
+    private static Field serverboundDataField() {
+        Field field = serverboundDataField;
+        if (field == null) {
+            field = findField(CPacketCustomPayload.class, PacketBuffer.class, 0, "data", "field_149560_b", "b");
+            serverboundDataField = field;
+        }
+        return field;
+    }
+
+    private static Constructor<SPacketCustomPayload> clientboundCustomPayloadCtor() {
+        Constructor<SPacketCustomPayload> ctor = clientboundCustomPayloadCtor;
+        if (ctor == null) {
+            ctor = findConstructor(SPacketCustomPayload.class);
+            clientboundCustomPayloadCtor = ctor;
+        }
+        return ctor;
+    }
+
+    private static Constructor<CPacketCustomPayload> serverboundCustomPayloadCtor() {
+        Constructor<CPacketCustomPayload> ctor = serverboundCustomPayloadCtor;
+        if (ctor == null) {
+            ctor = findConstructor(CPacketCustomPayload.class);
+            serverboundCustomPayloadCtor = ctor;
+        }
+        return ctor;
+    }
+
+    private static <T> T newPacket(Constructor<T> ctor, String channel, PacketBuffer data) {
+        try {
+            return ctor.newInstance(channel, data);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException("[NEB] Failed to construct custom payload packet", e);
+        }
+    }
+
+    private static Field findField(Class<?> owner, Class<?> type, int typeIndex, String... names) {
         for (String name : names) {
             try {
                 Field field = owner.getDeclaredField(name);
-                field.setAccessible(true);
-                return field;
+                if (type.isAssignableFrom(field.getType())) {
+                    field.setAccessible(true);
+                    return field;
+                }
             } catch (NoSuchFieldException ignored) {
             }
         }
-        throw new IllegalStateException("[NEB] Failed to resolve field on " + owner.getName());
+        int currentIndex = 0;
+        Field[] fields = owner.getDeclaredFields();
+        for (Field field : fields) {
+            if (type.isAssignableFrom(field.getType())) {
+                if (currentIndex == typeIndex) {
+                    field.setAccessible(true);
+                    return field;
+                }
+                currentIndex++;
+            }
+        }
+        throw new IllegalStateException("[NEB] Failed to resolve " + type.getName() + " field on " + owner.getName());
+    }
+
+    private static <T> Constructor<T> findConstructor(Class<T> owner) {
+        try {
+            Constructor<T> ctor = owner.getDeclaredConstructor(String.class, PacketBuffer.class);
+            ctor.setAccessible(true);
+            return ctor;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("[NEB] Failed to resolve constructor on " + owner.getName(), e);
+        }
     }
 
     private static <T> T getFieldValue(Field field, Object instance, Class<T> type) {

@@ -13,9 +13,12 @@ public final class ModNetworkRegistry {
         if (initialized) {
             return;
         }
-        PayloadRegistrar registrar = new PayloadRegistrar("1").executesOn(HandlerThread.MAIN);
-        cn.ussshenzhou.notenoughbandwidth.network.payload.ModNetworkRegistry.networkPacketRegistry(registrar);
-        cn.ussshenzhou.network.ModNetworkRegistry.init();
+        networkPacketRegistry(new PayloadRegistrar("1").optional().executesOn(HandlerThread.NETWORK));
         initialized = true;
+    }
+
+    public static void networkPacketRegistry(PayloadRegistrar registrar) {
+        cn.ussshenzhou.notenoughbandwidth.network.payload.ModNetworkRegistry.networkPacketRegistry(registrar);
+        cn.ussshenzhou.network.ModNetworkRegistry.networkPacketRegistry(registrar);
     }
 }

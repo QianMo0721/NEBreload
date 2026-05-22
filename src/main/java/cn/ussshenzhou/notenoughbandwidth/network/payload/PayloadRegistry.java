@@ -1,19 +1,16 @@
 package cn.ussshenzhou.notenoughbandwidth.network.payload;
 
 import cn.ussshenzhou.notenoughbandwidth.ModConstants;
+import cn.ussshenzhou.notenoughbandwidth.aggregation.PacketAggregationPacket;
 import io.netty.buffer.Unpooled;
-import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.network.INetHandler;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.PacketBuffer;
-import net.minecraft.network.play.INetHandlerPlayClient;
-import net.minecraft.network.play.INetHandlerPlayServer;
-import net.minecraft.network.play.client.CPacketCustomPayload;
-import net.minecraft.network.play.server.SPacketCustomPayload;
 
 import javax.annotation.Nullable;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -36,11 +33,34 @@ public final class PayloadRegistry {
     }
 
     public static Collection<PayloadRegistration<?>> registrations() {
-        return REGISTRATIONS.values();
+        return Collections.unmodifiableCollection(REGISTRATIONS.values());
     }
 
     public static boolean contains(String id) {
         return REGISTRATIONS.containsKey(id);
+    }
+
+    public static NetworkPayloadSetup buildTransportOnlySetup() {
+        NetworkPayloadSetup setup = NetworkPayloadSetup.empty();
+        PayloadRegistration<?> registration = REGISTRATIONS.get(PacketAggregationPacket.CHANNEL_NAME);
+        if (registration != null) {
+            setup.register(registration);
+        }
+        return setup;
+    }
+
+    public static NetworkPayloadSetup buildSetup(@Nullable Map<String, String> negotiatedChannels) {
+        NetworkPayloadSetup setup = NetworkPayloadSetup.empty();
+        if (negotiatedChannels == null || negotiatedChannels.isEmpty()) {
+            for (PayloadRegistration<?> registration : REGISTRATIONS.values()) {
+                setup.register(registration);
+            }
+            return setup;
+        }
+        for (Map.Entry<String, String> entry : negotiatedChannels.entrySet()) {
+            setup.register(entry.getKey(), entry.getValue());
+        }
+        return setup;
     }
 
     @SuppressWarnings("unchecked")
@@ -74,9 +94,9 @@ public final class PayloadRegistry {
             packetBuf.writeString(payload.type());
             packetBuf.writeBytes(payloadBuf, payloadBuf.readerIndex(), payloadBuf.readableBytes());
             if (clientbound) {
-                connection.sendPacket(new SPacketCustomPayload(ModConstants.MOD_ID + ":payload", packetBuf));
+                connection.sendPacket(PacketAggregationPacket.newClientboundPacket(ModConstants.PAYLOAD_CHANNEL, packetBuf));
             } else {
-                connection.sendPacket(new CPacketCustomPayload(ModConstants.MOD_ID + ":payload", packetBuf));
+                connection.sendPacket(PacketAggregationPacket.newServerboundPacket(ModConstants.PAYLOAD_CHANNEL, packetBuf));
             }
         } finally {
             payloadBuf.release();
@@ -109,7 +129,7 @@ public final class PayloadRegistry {
     }
 
     public static boolean handleIncomingCustomPayload(NetworkManager connection, INetHandler listener, String channel, PacketBuffer data, boolean clientbound) {
-        if (!(ModConstants.MOD_ID + ":payload").equals(channel) || data == null) {
+        if (!(ModConstants.PAYLOAD_CHANNEL).equals(channel) || data == null) {
             return false;
         }
         PacketBuffer frame = new PacketBuffer(data.retainedDuplicate());
@@ -123,11 +143,7 @@ public final class PayloadRegistry {
     }
 
     public static void sendToServer(NebPayload payload, NebPayload... payloads) {
-        Minecraft minecraft = Minecraft.getMinecraft();
-        if (minecraft == null || minecraft.getConnection() == null) {
-            return;
-        }
-        NetworkManager connection = minecraft.getConnection().getNetworkManager();
+        NetworkManager connection = ClientPayloadBridge.getClientNetworkManager();
         send(connection, false, payload);
         if (payloads != null) {
             for (NebPayload other : payloads) {
