@@ -8,7 +8,7 @@ on:
       - 1.20.1forge
       - dev-1.20.1forge
     tags:
-      - 'v*'
+      - 'nebl-*'
   pull_request:
     branches:
       - main
@@ -53,9 +53,22 @@ jobs:
             echo "mod_version is empty" >&2
             exit 1
           fi
+
+          # mod_version contains the Forge build suffix for the jar metadata, e.g.
+          # 20.1.09-forge+1.20.1+47.4.0.  Release tags intentionally omit the
+          # loader build suffix and use nebl-20.1.09-forge+1.20.1.
+          forge_version="$(grep '^forge_version=' gradle.properties | cut -d '=' -f 2- | tr -d '[:space:]')"
+          release_version="$version"
+          if [ -n "$forge_version" ]; then
+            release_version="${release_version%+$forge_version}"
+          fi
+          tag="nebl-$release_version"
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "Release version: $version"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Mod version: $version"
+          echo "Release tag: $tag"
 
       - name: Build mod jars
         run: ./gradlew clean build --no-daemon --stacktrace
@@ -105,7 +118,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.version.outputs.tag }}
-          RELEASE_NAME: NotEnoughBandwidthLegacy ${{ steps.version.outputs.version }}
+          RELEASE_NAME: NotEnoughBandwidthLegacy ${{ steps.version.outputs.release_version }}
           FAT_JAR: ${{ env.FAT_JAR }}
         shell: bash
         run: |
