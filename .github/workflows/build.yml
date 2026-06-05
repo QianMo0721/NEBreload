@@ -6,6 +6,7 @@ on:
       - main
       - master
       - 1.20.1forge
+      - dev-1.20.1forge
     tags:
       - 'v*'
   pull_request:
@@ -13,6 +14,7 @@ on:
       - main
       - master
       - 1.20.1forge
+      - dev-1.20.1forge
   workflow_dispatch:
 
 permissions:
