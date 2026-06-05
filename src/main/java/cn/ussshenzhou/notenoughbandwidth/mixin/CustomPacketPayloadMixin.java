@@ -7,6 +7,7 @@ import org.spongepowered.asm.mixin.Mixin;
 /**
  * 该类已废弃
  */
+@Deprecated(forRemoval = true)
 @Mixin({ClientboundCustomPayloadPacket.class, ServerboundCustomPayloadPacket.class})
 public class CustomPacketPayloadMixin {
 }

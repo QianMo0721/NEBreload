@@ -3,17 +3,24 @@ name: Build Forge Mod
 on:
   push:
     branches:
-      - '**'
+      - main
+      - master
+      - 1.20.1forge
     tags:
       - 'v*'
   pull_request:
+    branches:
+      - main
+      - master
+      - 1.20.1forge
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
+    name: Build and publish fat jar
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -34,44 +41,99 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/wrapper-validation-action@v2
 
+      - name: Read mod version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(grep '^mod_version=' gradle.properties | cut -d '=' -f 2- | tr -d '[:space:]')"
+          if [ -z "$version" ]; then
+            echo "mod_version is empty" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Release version: $version"
+
       - name: Build mod jars
         run: ./gradlew clean build --no-daemon --stacktrace
 
-      - name: Verify expected output jar exists
+      - name: Verify exactly one fat jar
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
           jars=(build/libs/*.jar)
-          release_jars=()
+          fat_jars=()
+
+          printf 'Built jars:\n'
+          printf ' - %s\n' "${jars[@]}"
 
           for jar in "${jars[@]}"; do
-            if [[ "$jar" != *-slim.jar ]]; then
-              release_jars+=("$jar")
-            fi
+            case "$jar" in
+              *-slim.jar|*-sources.jar|*-javadoc.jar) ;;
+              *) fat_jars+=("$jar") ;;
+            esac
           done
 
-          if [[ ${#release_jars[@]} -eq 0 ]]; then
-            echo "No release jar found in build/libs"
+          if [ "${#fat_jars[@]}" -ne 1 ]; then
+            echo "Expected exactly one fat jar, found ${#fat_jars[@]}" >&2
+            printf 'Fat jar candidates:\n' >&2
+            printf ' - %s\n' "${fat_jars[@]}" >&2
             exit 1
           fi
 
-          if [[ ${#release_jars[@]} -gt 1 ]]; then
-            echo "More than one non-slim jar found:"
-            printf ' - %s\n' "${release_jars[@]}"
-            exit 1
-          fi
+          jar tf "${fat_jars[0]}" | grep -q 'META-INF/mods.toml'
+          jar tf "${fat_jars[0]}" | grep -q 'META-INF/jarjar/metadata.json'
+          jar tf "${fat_jars[0]}" | grep -q 'cn/ussshenzhou/notenoughbandwidth/NotEnoughBandwidthLegacy.class'
 
-          echo "RELEASE_JAR=${release_jars[0]}" >> "$GITHUB_ENV"
-          echo "Verified release jar: ${release_jars[0]}"
+          echo "FAT_JAR=${fat_jars[0]}" >> "$GITHUB_ENV"
+          echo "Verified fat jar: ${fat_jars[0]}"
 
-      - name: Upload build artifact
+      - name: Upload fat jar artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nebl-build
-          path: |
-            ${{ env.RELEASE_JAR }}
-            changelog.txt
-            LICENSE
+          name: nebl-fat-jar
+          path: ${{ env.FAT_JAR }}
           if-no-files-found: error
           compression-level: 0
+
+      - name: Publish or update GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.version.outputs.tag }}
+          RELEASE_NAME: NotEnoughBandwidthLegacy ${{ steps.version.outputs.version }}
+          FAT_JAR: ${{ env.FAT_JAR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists; updating it."
+            gh release edit "$TAG_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --target "$GITHUB_SHA" \
+              --draft=false \
+              --prerelease=false
+          else
+            echo "Release $TAG_NAME does not exist; creating it."
+            gh release create "$TAG_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --target "$GITHUB_SHA" \
+              --generate-notes
+          fi
+
+          asset_name="$(basename "$FAT_JAR")"
+          existing_assets="$(gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          while IFS= read -r asset; do
+            if [ -n "$asset" ] && [[ "$asset" == *.jar ]]; then
+              echo "Deleting old jar asset: $asset"
+              gh release delete-asset "$TAG_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          done <<< "$existing_assets"
+
+          echo "Uploading fat jar asset: $asset_name"
+          gh release upload "$TAG_NAME" "$FAT_JAR" --repo "$GITHUB_REPOSITORY" --clobber

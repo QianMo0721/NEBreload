@@ -15,10 +15,13 @@ import net.minecraft.network.protocol.BundlePacket;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
+import net.minecraft.network.protocol.game.ClientboundSetCameraPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
+import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -96,6 +99,29 @@ public abstract class ConnectionMixin {
     @Unique
     private static boolean shouldSkipAggregation(Packet<?> packet) {
         var type = PacketUtil.getTrueType(packet);
-        return type == null || NotEnoughBandwidthLegacyConfig.skipType(type.toString());
+        if (type == null) {
+            return true;
+        }
+        if (shouldAlwaysBypassAggregation(packet)) {
+            return true;
+        }
+        // 其它 mod 的 Forge custom payload 往往承载 GUI、菜单、按钮交互、能力同步等强上下文消息。
+        // 这些消息必须尽量保持 Forge 原生 NetworkHooks.onCustomPayload 分发语义，不能被 NEB 聚合后重建/回放。
+        // NEB 自己的 transport/debug payload 已在配置黑名单中直通；这里额外兜底所有非 NEB custom payload。
+        if (packet instanceof ClientboundCustomPayloadPacket || packet instanceof ServerboundCustomPayloadPacket) {
+            return true;
+        }
+        return NotEnoughBandwidthLegacyConfig.skipType(type.toString());
+    }
+
+    @Unique
+    private static boolean shouldAlwaysBypassAggregation(Packet<?> packet) {
+        return packet instanceof ClientboundAddEntityPacket
+                || packet instanceof ClientboundMoveEntityPacket
+                || packet instanceof ClientboundTeleportEntityPacket
+                || packet instanceof ClientboundSetEntityMotionPacket
+                || packet instanceof ClientboundRemoveEntitiesPacket
+                || packet instanceof ClientboundBlockUpdatePacket
+                || packet instanceof ClientboundSetCameraPacket;
     }
 }
