@@ -18,6 +18,7 @@ public class Context implements Closeable {
     private final boolean useContext;
 
     public Context(boolean useContext) {
+        AndroidZstdNativeLoader.prepare();
         compressCtx = new ZstdCompressCtx();
         compressCtx.setLevel(3);
         compressCtx.setContentSize(false);
@@ -29,6 +30,11 @@ public class Context implements Closeable {
     }
 
     public ByteBuffer compress(ByteBuffer raw) {
+        if (AndroidZstdNativeLoader.DIRECT_BUFFER_UNRELIABLE) {
+            byte[] rawArr = new byte[raw.remaining()];
+            raw.get(rawArr);
+            return ByteBuffer.wrap(compressCtx.compress(rawArr));
+        }
         if (useContext) {
             int maxDstSize = (int) Zstd.compressBound(raw.remaining());
             var dst = ByteBuffer.allocateDirect(maxDstSize);
@@ -40,6 +46,13 @@ public class Context implements Closeable {
     }
 
     public ByteBuffer decompress(ByteBuffer compressed, int originalSize) {
+        if (AndroidZstdNativeLoader.DIRECT_BUFFER_UNRELIABLE) {
+            byte[] compressedArr = new byte[compressed.remaining()];
+            compressed.get(compressedArr);
+            byte[] dstArr = new byte[originalSize];
+            decompressCtx.decompress(dstArr, compressedArr);
+            return ByteBuffer.wrap(dstArr);
+        }
         var dst = ByteBuffer.allocateDirect(originalSize);
         decompressCtx.decompressDirectByteBufferStream(dst, compressed);
         dst.flip();

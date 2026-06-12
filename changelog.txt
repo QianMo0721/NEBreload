@@ -1,2 +1,2 @@
-nebl-21.1.06-neoforge+1.21.1:
-Fixed compatibility between DCC and long-range view modules (e.g., voxy, dh); requires the dccEnabled configuration to be set to false.
+nebl-21.1.07-neoforge+1.21.1:
+Android zstd-jni native library support.
