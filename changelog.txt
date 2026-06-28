@@ -1,2 +1,2 @@
-nebl-21.1.07-neoforge+1.21.1:
-Android zstd-jni native library support.
+nebl-21.1.08-neoforge+1.21.1:
+Update incompatible mod list.

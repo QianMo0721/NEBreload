@@ -29,7 +29,7 @@ public class Varint21FrameDecoderMixin {
         int length = VarInt.read(buf);
         int maxSize = NotEnoughBandwidthLegacyConfig.get().getMaxPacketSize();
         if (length > maxSize) {
-            throw new EncoderException("NEB: Packet too large: size " + length + " is over " + maxSize);
+            throw new EncoderException("NEBL: Packet too large: size " + length + " is over " + maxSize);
         }
         return length;
     }

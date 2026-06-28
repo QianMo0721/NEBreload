@@ -29,7 +29,7 @@ public class Varint21LengthFieldPrependerMixin {
     private void neblCheckPacketSize(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out, CallbackInfo ci, @Local(ordinal = 0) int bodyLength) {
         int maxSize = NotEnoughBandwidthLegacyConfig.get().getMaxPacketSize();
         if (bodyLength > maxSize) {
-            throw new EncoderException("NEB: Packet too large: size " + bodyLength + " is over " + maxSize);
+            throw new EncoderException("NEBL: Packet too large: size " + bodyLength + " is over " + maxSize);
         }
     }
 }

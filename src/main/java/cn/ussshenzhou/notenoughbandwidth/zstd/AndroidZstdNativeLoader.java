@@ -39,7 +39,7 @@ final class AndroidZstdNativeLoader {
         String abi = androidAbi();
         if (abi == null) {
             LOGGER.warn(
-                    "[NEBL] Android/FCL runtime detected, but os.arch={} is not mapped to a bundled Android zstd-jni ABI",
+                    "NEBL: Android/FCL runtime detected, but os.arch={} is not mapped to a bundled Android zstd-jni ABI",
                     System.getProperty("os.arch")
             );
             return;
@@ -50,10 +50,10 @@ final class AndroidZstdNativeLoader {
             File extracted = extract(resource, abi);
             System.setProperty("ZstdNativePath", extracted.getAbsolutePath());
             Native.load();
-            LOGGER.info("[NEBL] Loaded Android zstd-jni native library for {} from bundled resource {}", abi, resource);
+            LOGGER.info("NEBL: Loaded Android zstd-jni native library for {} from bundled resource {}", abi, resource);
         } catch (Throwable e) {
             LOGGER.warn(
-                    "[NEBL] Failed to preload Android zstd-jni native library from {}; zstd-jni default loader will be used: {}",
+                    "NEBL: Failed to preload Android zstd-jni native library from {}; zstd-jni default loader will be used: {}",
                     resource,
                     e.toString()
             );
@@ -89,7 +89,7 @@ final class AndroidZstdNativeLoader {
     private static File extract(String resource, String abi) throws IOException {
         try (InputStream in = AndroidZstdNativeLoader.class.getResourceAsStream(resource)) {
             if (in == null) {
-                throw new IOException("missing resource " + resource);
+                throw new IOException("nebl missing resource " + resource);
             }
 
             File temp = File.createTempFile("nebl-android-zstd-jni-" + abi + "-", ".so");
